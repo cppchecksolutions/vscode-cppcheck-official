@@ -118,7 +118,7 @@ export function activate(context: vscode.ExtensionContext) {
             }
         });
 
-        await runCppcheckTextBuffer(
+        await runCppcheckOnFile(
             document,
             commandPath,
             extraArgs,
@@ -146,7 +146,7 @@ export function activate(context: vscode.ExtensionContext) {
     }
 
     // Run cppcheck when document is changed, with debounce
-    vscode.workspace.onDidChangeTextDocument(handleDocumentContinuous, null, context.subscriptions);
+    // vscode.workspace.onDidChangeTextDocument(handleDocumentContinuous, null, context.subscriptions);
 
     // Listen for file saves.
     vscode.workspace.onDidSaveTextDocument(handleDocument, null, context.subscriptions);
@@ -168,6 +168,8 @@ export function activate(context: vscode.ExtensionContext) {
     }, null, context.subscriptions);
 }
 
+// NOTE: This function currently uses temp files since cppcheck will not accept text input.
+// This causes issues with paths for preprocessor settings and can thus not currently be used
 async function runCppcheckTextBuffer(
     document: vscode.TextDocument,
     commandPath: string,
@@ -268,6 +270,103 @@ async function runCppcheckTextBuffer(
         }
         // Clean up temp file
         fs.unlink(tmpPath, () => {});
+    });
+}
+
+async function runCppcheckOnFile(
+    document: vscode.TextDocument,
+    commandPath: string,
+    extraArgs: string,
+    minSevString: string,
+    standard: string,
+    diagnosticCollection: vscode.DiagnosticCollection
+): Promise<void> {
+    // Clear existing diagnostics for this file
+    diagnosticCollection.delete(document.uri);
+
+    const filePath = document.fileName;
+    const minSevNum = parseMinSeverity(minSevString);
+    const standardArg = standard !== "<none>" ? `--std=${standard}` : "";
+    const text = document.getText();
+
+    // Resolve paths for arguments where applicable
+    const extraArgsParsed = (extraArgs.split(" ")).map((arg) => {
+        if (arg.startsWith('--project')) {
+            const splitArg = arg.split('=');
+            return `${splitArg[0]}=${resolvePath(splitArg[1])}`;
+        }
+        return arg;
+    });
+
+    const args = [
+        '--enable=all',
+        standardArg,
+        ...extraArgsParsed,
+        filePath.replace(/\\/g, '/')
+    ].filter(Boolean);
+    const proc = cp.spawn(commandPath, args);
+
+    // if spawn fails (e.g. ENOENT or permission denied)
+    proc.on("error", (err) => {
+        console.error("Failed to start cppcheck:", err);
+        vscode.window.showErrorMessage(`Cppcheck failed to start: ${err.message}`);
+    });
+
+    proc.stdin.write(text);
+    proc.stdin.end();
+
+    let out = "";
+    let err = "";
+
+    proc.stdout.on("data", d => out += d.toString());
+    proc.stderr.on("data", d => err += d.toString());
+    proc.on("close", code => {
+        if (code && code > 1) {
+            // Non-zero code means an error has occured
+            console.error(`cppcheck exited with code ${code}`, err, out);
+            vscode.window.showErrorMessage(`${err.trim()} ${out.trim()}`);
+        } else {
+            const diagnostics: vscode.Diagnostic[] = [];
+            const regex = /^(.*?):(\d+):(\d+):\s*(error|warning|style|performance|information|info|note):\s*(.*)$/gm;
+            let match;
+            const allOutput = err + '\n' + out;
+            while ((match = regex.exec(allOutput)) !== null) {
+                const [, file, lineStr, colStr, severityStr, message] = match;
+                const line = parseInt(lineStr, 10) - 1;
+                let col = parseInt(colStr, 10) - 1;
+                const diagSeverity = parseSeverity(severityStr);
+                // Filter out if severity is less than our minimum
+                if (severityToNumber(diagSeverity) < minSevNum) {
+                    continue;
+                }
+
+                // Handles quirk with 'Active checkers' output that is given -1 line number (should prob be handled differently)
+                if (line < 0 || line >= document.lineCount) {
+                    console.warn(`cppcheck produced diagnostic for out-of-range line ${line + 1}`);
+                    continue;
+                }
+
+                // clamp column into valid range for that line
+                const lineText = document.lineAt(line).text;
+                if (isNaN(col) || col < 0) {
+                    col = 0;
+                }
+                if (col > lineText.length) {
+                    col = Math.max(0, lineText.length - 1);
+                }
+                // produce an end column that covers at least one character (avoids zero-length nonsense)
+                const endCol = Math.min(lineText.length, col + 1);
+
+                const range = new vscode.Range(line, col, line, endCol);
+                const diagnostic = new vscode.Diagnostic(range, message, diagSeverity);
+
+                diagnostic.code = standard !== "<none>" ? standard : "";
+                diagnostic.source = "cppcheck";
+
+                diagnostics.push(diagnostic);
+            }
+            diagnosticCollection.set(document.uri, diagnostics);
+        }
     });
 }
 
