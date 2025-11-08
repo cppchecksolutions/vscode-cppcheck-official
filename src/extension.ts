@@ -66,6 +66,17 @@ export function resolvePath(argPath: string): string {
     return argPath;
 }
 
+// Help function for diagnostic formating
+function clampCol(col: any, lineLength: number) {
+    if (isNaN(col) || col < 0) {
+        col = 0;
+    }
+    if (col > lineLength) {
+        col = Math.max(0, lineLength - 1);
+    }
+    return col;
+}
+
 // This method is called when your extension is activated.
 // Your extension is activated the very first time the command is executed.
 export function activate(context: vscode.ExtensionContext) {
@@ -328,42 +339,61 @@ async function runCppcheckOnFile(
         } else {
             const diagnostics: vscode.Diagnostic[] = [];
             const regex = /^(.*?):(\d+):(\d+):\s*(error|warning|style|performance|information|info|note):\s*(.*)$/gm;
-            let match;
             const allOutput = err + '\n' + out;
+            let match;
+            let mainDiagnostic = null;
+            let relatedInformation = [];
             while ((match = regex.exec(allOutput)) !== null) {
                 const [, file, lineStr, colStr, severityStr, message] = match;
                 const line = parseInt(lineStr, 10) - 1;
                 let col = parseInt(colStr, 10) - 1;
                 const diagSeverity = parseSeverity(severityStr);
+                // Handles quirk with 'Active checkers' output that is given -1 line number (should prob be handled differently)
+                if (line < 0 || line >= document.lineCount) {
+                    continue;
+                }
                 // Filter out if severity is less than our minimum
                 if (severityToNumber(diagSeverity) < minSevNum) {
                     continue;
                 }
 
-                // Handles quirk with 'Active checkers' output that is given -1 line number (should prob be handled differently)
-                if (line < 0 || line >= document.lineCount) {
-                    console.warn(`cppcheck produced diagnostic for out-of-range line ${line + 1}`);
-                    continue;
+                // If main diagnostic is not null and a line with severity of warning or error arises we asume
+                // that the previous diagnostic is complete and this line belongs to a new diagnostic
+                if (mainDiagnostic !== null &&
+                    severityToNumber(diagSeverity) !== SeverityNumber.Info) {
+                     mainDiagnostic.relatedInformation = relatedInformation;
+                     diagnostics.push(mainDiagnostic);
+                     mainDiagnostic = null;
+                     relatedInformation = [];
                 }
 
-                // clamp column into valid range for that line
                 const lineText = document.lineAt(line).text;
-                if (isNaN(col) || col < 0) {
-                    col = 0;
-                }
-                if (col > lineText.length) {
-                    col = Math.max(0, lineText.length - 1);
-                }
+                
+                // clamp column into valid range for that line
+                col = clampCol(col, lineText.length);
+                
                 // produce an end column that covers at least one character (avoids zero-length nonsense)
                 const endCol = Math.min(lineText.length, col + 1);
 
                 const range = new vscode.Range(line, col, line, endCol);
-                const diagnostic = new vscode.Diagnostic(range, message, diagSeverity);
-
-                diagnostic.code = standard !== "<none>" ? standard : "";
-                diagnostic.source = "cppcheck";
-
-                diagnostics.push(diagnostic);
+                
+                if (mainDiagnostic === null) {
+                    const diagnostic = new vscode.Diagnostic(range, message, diagSeverity);
+                    diagnostic.code = standard !== "<none>" ? standard : "";
+                    diagnostic.source = "cppcheck";
+                    mainDiagnostic = diagnostic;
+                } else {
+                    const information = new vscode.DiagnosticRelatedInformation(
+                        new vscode.Location(document.uri, range),
+                        message,
+                    );
+                    relatedInformation.push(information);
+                }
+            }
+            // Add remaining diagnostic
+            if (mainDiagnostic) {
+                mainDiagnostic.relatedInformation = relatedInformation;
+                diagnostics.push(mainDiagnostic);
             }
             diagnosticCollection.set(document.uri, diagnostics);
         }
