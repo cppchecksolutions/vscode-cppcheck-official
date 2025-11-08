@@ -23,13 +23,13 @@ Examples of installing Cppcheck:
 
 ## Extension Settings
 
-This extension contributes the following settings under `cppcheck-Official.*`:
+This extension contributes the following settings under `cppcheck-official.*`:
 
-- **`cppcheck-Official.enable`**: (boolean) Enable or disable the extension.  
-- **`cppcheck-Official.minSeverity`**: (string) Minimum severity to report (`info`, `warning`, or `error`).  `info` shows style, performance, portability and information messages.
-- **`cppcheck-Official.standard`**: (string) Sets the C/C++ standard with `--std=<id>` (e.g. `c11`, `c++17`).
-- **`cppcheck-Official.arguments`**: (string) Additional [command line arguments](https://cppcheck.sourceforge.io/manual.pdf?#page=5) to pass to `cppcheck`.  
-- **`cppcheck-Official.path`**: (string) Path to the `cppcheck` executable. If left empty, `cppcheck` from the system PATH is used.
+- **`cppcheck-official.enable`**: (boolean) Enable or disable the extension.  
+- **`cppcheck-official.minSeverity`**: (string) Minimum severity to report (`info`, `warning`, or `error`).  `info` shows style, performance, portability and information messages.
+- **`cppcheck-official.standard`**: (string) Sets the C/C++ standard with `--std=<id>` (e.g. `c11`, `c++17`).
+- **`cppcheck-official.arguments`**: (string) Additional [command line arguments](https://cppcheck.sourceforge.io/manual.pdf?#page=5) to pass to `cppcheck`.  
+- **`cppcheck-official.path`**: (string) Path to the `cppcheck` executable. If left empty, `cppcheck` from the system PATH is used. Supports paths relative to workspace folder on the formats `./RELATIVE_PATH`, `../RELATIVE_PATH` or `${workspaceFolder}/RELATIVE_PATH`.
 
 ## Reporting Issues
 Please submit any issues or feature requests via the [GitHub Issues page](https://github.com/cppchecksolutions/vscode-cppcheck-official/issues).

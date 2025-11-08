@@ -6,7 +6,7 @@
   "engines": {
     "vscode": "^1.96.0"
   },
-  "author": "David Ramnerö <davidramnero@hotmail.com>",
+  "author": "David Ramnerö <david.ramnero@cppchecksolutions.com>",
   "repository": {
     "type": "git",
     "url": "https://github.com/davidramnero/cppcheck-vscode"
