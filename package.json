@@ -1,7 +1,7 @@
 {
   "name": "cppcheck-official",
   "displayName": "Cppcheck Official",
-  "description": "A Visual Studio Code extension that runs cppcheck on C/C++ files continuously. Supported by the Cppcheck team.",
+  "description": "A Visual Studio Code extension that runs cppcheck on C/C++ files on save. Supported by the Cppcheck team.",
   "version": "1.0.0",
   "engines": {
     "vscode": "^1.96.0"
