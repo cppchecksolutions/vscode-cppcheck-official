@@ -1,9 +1,8 @@
 import * as vscode from 'vscode';
 import * as cp from 'child_process';
-import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
-import { randomUUID } from 'crypto';
+import * as xml2js from 'xml2js';
 
 enum SeverityNumber {
     Info = 0,
@@ -66,17 +65,6 @@ export function resolvePath(argPath: string): string {
     return argPath;
 }
 
-// Help function for diagnostic formating
-function clampCol(col: any, lineLength: number) {
-    if (isNaN(col) || col < 0) {
-        col = 0;
-    }
-    if (col > lineLength) {
-        col = Math.max(0, lineLength - 1);
-    }
-    return col;
-}
-
 // This method is called when your extension is activated.
 // Your extension is activated the very first time the command is executed.
 export function activate(context: vscode.ExtensionContext) {
@@ -129,7 +117,7 @@ export function activate(context: vscode.ExtensionContext) {
             }
         });
 
-        await runCppcheckOnFile(
+        await runCppcheckOnFileXML(
             document,
             commandPath,
             extraArgs,
@@ -179,9 +167,7 @@ export function activate(context: vscode.ExtensionContext) {
     }, null, context.subscriptions);
 }
 
-// NOTE: This function currently uses temp files since cppcheck will not accept text input.
-// This causes issues with paths for preprocessor settings and can thus not currently be used
-async function runCppcheckTextBuffer(
+async function runCppcheckOnFileXML(
     document: vscode.TextDocument,
     commandPath: string,
     extraArgs: string,
@@ -193,13 +179,9 @@ async function runCppcheckTextBuffer(
     diagnosticCollection.delete(document.uri);
 
     const filePath = document.fileName;
+    // TODO: Reimplement severity filtering
     const minSevNum = parseMinSeverity(minSevString);
     const standardArg = standard !== "<none>" ? `--std=${standard}` : "";
-
-    // Save buffer to temp file, for passing to cppcheck
-    const textBuffer = document.getText();
-    const tmpPath = path.join(os.tmpdir(), "cppcheck-" + randomUUID() + ".cpp");
-    fs.writeFileSync(tmpPath, document.getText(), "utf8");
 
     // Resolve paths for arguments where applicable
     const extraArgsParsed = (extraArgs.split(" ")).map((arg) => {
@@ -212,191 +194,76 @@ async function runCppcheckTextBuffer(
 
     const args = [
         '--enable=all',
-        standardArg,
-        ...extraArgsParsed,
-        tmpPath.replace(/\\/g, '/')
-    ].filter(Boolean);
-    const proc = cp.spawn(commandPath, args);
-
-    // if spawn fails (e.g. ENOENT or permission denied)
-    proc.on("error", (err) => {
-        console.error("Failed to start cppcheck:", err);
-        vscode.window.showErrorMessage(`Cppcheck failed to start: ${err.message}`);
-    });
-
-    proc.stdin.write(textBuffer);
-    proc.stdin.end();
-
-    let out = "";
-    let err = "";
-
-    proc.stdout.on("data", d => out += d.toString());
-    proc.stderr.on("data", d => err += d.toString());
-    proc.on("close", code => {
-        if (code && code > 1) {
-            // Non-zero code means an error has occured
-            console.error(`cppcheck exited with code ${code}`, err, out);
-            vscode.window.showErrorMessage(`${err.trim()} ${out.trim()}`);
-        } else {
-            const diagnostics: vscode.Diagnostic[] = [];
-            const regex = /^(.*?):(\d+):(\d+):\s*(error|warning|style|performance|information|info|note):\s*(.*)$/gm;
-            let match;
-            const allOutput = err + '\n' + out;
-            while ((match = regex.exec(allOutput)) !== null) {
-                const [, file, lineStr, colStr, severityStr, message] = match;
-                const line = parseInt(lineStr, 10) - 1;
-                let col = parseInt(colStr, 10) - 1;
-                const diagSeverity = parseSeverity(severityStr);
-                // Filter out if severity is less than our minimum
-                if (severityToNumber(diagSeverity) < minSevNum) {
-                    continue;
-                }
-
-                // Handles quirk with 'Active checkers' output that is given -1 line number (should prob be handled differently)
-                if (line < 0 || line >= document.lineCount) {
-                    console.warn(`cppcheck produced diagnostic for out-of-range line ${line + 1}`);
-                    continue;
-                }
-
-                // clamp column into valid range for that line
-                const lineText = document.lineAt(line).text;
-                if (isNaN(col) || col < 0) {
-                    col = 0;
-                }
-                if (col > lineText.length) {
-                    col = Math.max(0, lineText.length - 1);
-                }
-                // produce an end column that covers at least one character (avoids zero-length nonsense)
-                const endCol = Math.min(lineText.length, col + 1);
-
-                const range = new vscode.Range(line, col, line, endCol);
-                const diagnostic = new vscode.Diagnostic(range, message, diagSeverity);
-
-                diagnostic.code = standard !== "<none>" ? standard : "";
-                diagnostic.source = "cppcheck";
-
-                diagnostics.push(diagnostic);
-            }
-            diagnosticCollection.set(document.uri, diagnostics);
-        }
-        // Clean up temp file
-        fs.unlink(tmpPath, () => {});
-    });
-}
-
-async function runCppcheckOnFile(
-    document: vscode.TextDocument,
-    commandPath: string,
-    extraArgs: string,
-    minSevString: string,
-    standard: string,
-    diagnosticCollection: vscode.DiagnosticCollection
-): Promise<void> {
-    // Clear existing diagnostics for this file
-    diagnosticCollection.delete(document.uri);
-
-    const filePath = document.fileName;
-    const minSevNum = parseMinSeverity(minSevString);
-    const standardArg = standard !== "<none>" ? `--std=${standard}` : "";
-    const text = document.getText();
-
-    // Resolve paths for arguments where applicable
-    const extraArgsParsed = (extraArgs.split(" ")).map((arg) => {
-        if (arg.startsWith('--project')) {
-            const splitArg = arg.split('=');
-            return `${splitArg[0]}=${resolvePath(splitArg[1])}`;
-        }
-        return arg;
-    });
-
-    const args = [
-        '--enable=all',
+        '--xml',
+        '--xml-version=2',
         standardArg,
         ...extraArgsParsed,
         filePath.replace(/\\/g, '/')
     ].filter(Boolean);
+
     const proc = cp.spawn(commandPath, args);
 
-    // if spawn fails (e.g. ENOENT or permission denied)
-    proc.on("error", (err) => {
-        console.error("Failed to start cppcheck:", err);
-        vscode.window.showErrorMessage(`Cppcheck failed to start: ${err.message}`);
-    });
-
-    proc.stdin.write(text);
-    proc.stdin.end();
-
-    let out = "";
-    let err = "";
-
-    proc.stdout.on("data", d => out += d.toString());
-    proc.stderr.on("data", d => err += d.toString());
-    proc.on("close", code => {
-        if (code && code > 1) {
-            // Non-zero code means an error has occured
-            console.error(`cppcheck exited with code ${code}`, err, out);
-            vscode.window.showErrorMessage(`${err.trim()} ${out.trim()}`);
-        } else {
-            const diagnostics: vscode.Diagnostic[] = [];
-            const regex = /^(.*?):(\d+):(\d+):\s*(error|warning|style|performance|information|info|note):\s*(.*)$/gm;
-            const allOutput = err + '\n' + out;
-            let match;
-            let mainDiagnostic = null;
-            let relatedInformation = [];
-            while ((match = regex.exec(allOutput)) !== null) {
-                const [, file, lineStr, colStr, severityStr, message] = match;
-                const line = parseInt(lineStr, 10) - 1;
-                let col = parseInt(colStr, 10) - 1;
-                const diagSeverity = parseSeverity(severityStr);
-                // Handles quirk with 'Active checkers' output that is given -1 line number (should prob be handled differently)
-                if (line < 0 || line >= document.lineCount) {
-                    continue;
-                }
-                // Filter out if severity is less than our minimum
-                if (severityToNumber(diagSeverity) < minSevNum) {
-                    continue;
-                }
-
-                // If main diagnostic is not null and a line with severity of warning or error arises we asume
-                // that the previous diagnostic is complete and this line belongs to a new diagnostic
-                if (mainDiagnostic !== null &&
-                    severityToNumber(diagSeverity) !== SeverityNumber.Info) {
-                     mainDiagnostic.relatedInformation = relatedInformation;
-                     diagnostics.push(mainDiagnostic);
-                     mainDiagnostic = null;
-                     relatedInformation = [];
-                }
-
-                const lineText = document.lineAt(line).text;
-                
-                // clamp column into valid range for that line
-                col = clampCol(col, lineText.length);
-                
-                // produce an end column that covers at least one character (avoids zero-length nonsense)
-                const endCol = Math.min(lineText.length, col + 1);
-
-                const range = new vscode.Range(line, col, line, endCol);
-                
-                if (mainDiagnostic === null) {
-                    const diagnostic = new vscode.Diagnostic(range, message, diagSeverity);
-                    diagnostic.code = standard !== "<none>" ? standard : "";
-                    diagnostic.source = "cppcheck";
-                    mainDiagnostic = diagnostic;
-                } else {
-                    const information = new vscode.DiagnosticRelatedInformation(
-                        new vscode.Location(document.uri, range),
-                        message,
-                    );
-                    relatedInformation.push(information);
-                }
+    let xmlOutput = "";
+    proc.stderr.on("data", d => xmlOutput += d.toString());
+    proc.on("close", () => {
+        const parser = new xml2js.Parser({ explicitArray: true });
+        parser.parseString(xmlOutput, (err, result) => {
+            if (err) {
+                console.error("XML parse error:", err);
+                return;
             }
-            // Add remaining diagnostic
-            if (mainDiagnostic) {
-                mainDiagnostic.relatedInformation = relatedInformation;
-                diagnostics.push(mainDiagnostic);
+
+            const errors = result.results?.errors?.[0]?.error || [];
+            const diagnostics: vscode.Diagnostic[] = [];
+
+            for (const e of errors) {
+                const locations = e.location || [];
+                if (!locations.length) {
+                    continue;
+                }
+
+                const mainLoc = locations[locations.length - 1].$;
+                const line = Number(mainLoc.line) - 1;
+                if (isNaN(line) || line < 0 || line >= document.lineCount) {
+                    continue;
+                }
+
+                const severity = parseSeverity(e.$.severity);
+                const range = new vscode.Range(line, 0, line, document.lineAt(line).text.length);
+                const diagnostic = new vscode.Diagnostic(range, `cppcheck: ${e.$.msg}`, severity);
+                diagnostic.source = "cppcheck";
+                diagnostic.code = e.$.id;
+
+                // Related Information
+                const relatedInfos: vscode.DiagnosticRelatedInformation[] = [];
+                for (let i = 0; i < locations.length; i++) {
+                    const loc = locations[i].$;
+                    const msg = loc.info;
+                    const lLine = Number(loc.line) - 1;
+
+                    if (msg === null || msg === undefined || isNaN(lLine) || lLine < 0 || lLine >= document.lineCount) {
+                        continue;
+                    }
+
+                    const relatedRange = new vscode.Range(
+                        lLine, 0,
+                        lLine, document.lineAt(lLine).text.length
+                    );
+
+                    relatedInfos.push(
+                        new vscode.DiagnosticRelatedInformation(
+                            new vscode.Location(document.uri, relatedRange),
+                            msg
+                        )
+                    );
+                }
+                if (relatedInfos.length > 0) {
+                    diagnostic.relatedInformation = relatedInfos;
+                }
+                diagnostics.push(diagnostic);
             }
             diagnosticCollection.set(document.uri, diagnostics);
-        }
+        });
     });
 }
 

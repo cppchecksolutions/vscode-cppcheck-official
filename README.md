@@ -14,7 +14,7 @@
 
  **Cppcheck** must be installed on your system.  
   - By default, this extension looks for `cppcheck` on the system PATH.
-  - Alternatively, specify a custom executable path using the `cppcheck-Official.path` setting.
+  - Alternatively, specify a custom executable path using the `cppcheck-official.path` setting.
 
 Examples of installing Cppcheck:
   - On Linux (Debian/Ubuntu), install via `sudo apt-get install cppcheck`.
