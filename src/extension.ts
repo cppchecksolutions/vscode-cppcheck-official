@@ -2,7 +2,9 @@ import * as vscode from 'vscode';
 import * as cp from 'child_process';
 import * as path from "path";
 import * as os from "os";
+import * as fs from "fs";
 import * as xml2js from 'xml2js';
+import { randomUUID } from 'crypto';
 
 enum SeverityNumber {
     Info = 0,
@@ -165,6 +167,113 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.workspace.onDidCloseTextDocument((document: vscode.TextDocument) => {
         diagnosticCollection.delete(document.uri);
     }, null, context.subscriptions);
+}
+
+async function runCppcheckOnFileXMLContinuous(
+    document: vscode.TextDocument,
+    commandPath: string,
+    extraArgs: string,
+    minSevString: string,
+    standard: string,
+    diagnosticCollection: vscode.DiagnosticCollection
+): Promise<void> {
+    // Clear existing diagnostics for this file
+    diagnosticCollection.delete(document.uri);
+
+    const filePath = document.fileName;
+    // TODO: Reimplement severity filtering
+    const minSevNum = parseMinSeverity(minSevString);
+    const standardArg = standard !== "<none>" ? `--std=${standard}` : "";
+
+    // Resolve paths for arguments where applicable
+    const extraArgsParsed = (extraArgs.split(" ")).map((arg) => {
+        if (arg.startsWith('--project')) {
+            const splitArg = arg.split('=');
+            return `${splitArg[0]}=${resolvePath(splitArg[1])}`;
+        }
+        return arg;
+    });
+
+    // Save buffer to temp file, for passing to cppcheck
+    const tmpPath = path.join(os.tmpdir(), "cppcheck-" + randomUUID() + ".cpp");
+    fs.writeFileSync(tmpPath, document.getText(), "utf8");
+
+    const args = [
+        '--enable=all',
+        '--xml',
+        '--xml-version=2',
+        `-I ${filePath.replace(/\\/g, '/')}`,
+        standardArg,
+        ...extraArgsParsed,
+        tmpPath.replace(/\\/g, '/')
+    ].filter(Boolean);
+
+    const proc = cp.spawn(commandPath, args);
+
+    let xmlOutput = "";
+    proc.stderr.on("data", d => xmlOutput += d.toString());
+    proc.on("close", () => {
+        const parser = new xml2js.Parser({ explicitArray: true });
+        parser.parseString(xmlOutput, (err, result) => {
+            if (err) {
+                console.error("XML parse error:", err);
+                return;
+            }
+
+            const errors = result.results?.errors?.[0]?.error || [];
+            const diagnostics: vscode.Diagnostic[] = [];
+
+            for (const e of errors) {
+                const locations = e.location || [];
+                if (!locations.length) {
+                    continue;
+                }
+
+                const mainLoc = locations[locations.length - 1].$;
+                const line = Number(mainLoc.line) - 1;
+                if (isNaN(line) || line < 0 || line >= document.lineCount) {
+                    continue;
+                }
+
+                const severity = parseSeverity(e.$.severity);
+                const range = new vscode.Range(line, 0, line, document.lineAt(line).text.length);
+                const diagnostic = new vscode.Diagnostic(range, `cppcheck: ${e.$.msg}`, severity);
+                diagnostic.source = "cppcheck";
+                diagnostic.code = e.$.id;
+
+                // Related Information
+                const relatedInfos: vscode.DiagnosticRelatedInformation[] = [];
+                for (let i = 0; i < locations.length; i++) {
+                    const loc = locations[i].$;
+                    const msg = loc.info;
+                    const lLine = Number(loc.line) - 1;
+
+                    if (msg === null || msg === undefined || isNaN(lLine) || lLine < 0 || lLine >= document.lineCount) {
+                        continue;
+                    }
+
+                    const relatedRange = new vscode.Range(
+                        lLine, 0,
+                        lLine, document.lineAt(lLine).text.length
+                    );
+
+                    relatedInfos.push(
+                        new vscode.DiagnosticRelatedInformation(
+                            new vscode.Location(document.uri, relatedRange),
+                            msg
+                        )
+                    );
+                }
+                if (relatedInfos.length > 0) {
+                    diagnostic.relatedInformation = relatedInfos;
+                }
+                diagnostics.push(diagnostic);
+            }
+            diagnosticCollection.set(document.uri, diagnostics);
+        });
+    });
+    // Clean up temp file
+    fs.unlink(tmpPath, () => {});
 }
 
 async function runCppcheckOnFileXML(
