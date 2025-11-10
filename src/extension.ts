@@ -203,9 +203,25 @@ async function runCppcheckOnFileXML(
 
     const proc = cp.spawn(commandPath, args);
 
+    // if spawn fails (e.g. ENOENT or permission denied)
+    proc.on("error", (err) => {
+        console.error("Failed to start cppcheck:", err);
+        vscode.window.showErrorMessage(`Cppcheck failed to start: ${err.message}`);
+    });
+
     let xmlOutput = "";
+    let out = "";
     proc.stderr.on("data", d => xmlOutput += d.toString());
-    proc.on("close", () => {
+    proc.stdout.on("data", d => out += d.toString());
+    proc.on("close", code => {
+        if (code && code > 0) {
+            // Non-zero code means an error has occured
+            let errorMessage = `Cppcheck failed with code ${code} (unknown error)`;
+            if (out.trim().length > 0) {
+                errorMessage = out.trim();
+            }
+            vscode.window.showErrorMessage(errorMessage);
+        }
         const parser = new xml2js.Parser({ explicitArray: true });
         parser.parseString(xmlOutput, (err, result) => {
             if (err) {
