@@ -1,5 +1,8 @@
 import * as vscode from 'vscode';
 import * as cp from 'child_process';
+import * as path from "path";
+import * as os from "os";
+import * as xml2js from 'xml2js';
 
 enum SeverityNumber {
     Info = 0,
@@ -34,20 +37,52 @@ function parseMinSeverity(str: string): SeverityNumber {
     }
 }
 
+export function resolvePath(argPath: string): string {
+    const folders = vscode.workspace.workspaceFolders;
+    const workspaceRoot = folders && folders.length > 0
+        ? folders[0].uri.fsPath
+        : process.cwd();
+
+    // Expand ${workspaceFolder}
+    if (argPath.includes("${workspaceFolder}")) {
+        argPath = argPath.replace("${workspaceFolder}", workspaceRoot);
+    }
+
+    // Expand tilde (~) to home directory
+    if (argPath.startsWith("~")) {
+        argPath = path.join(os.homedir(), argPath.slice(1));
+    }
+
+    // Expand ./ or ../ relative paths (relative to workspace root if available)
+    if (argPath.startsWith("./") || argPath.startsWith("../")) {
+        argPath = path.resolve(workspaceRoot, argPath);
+    }
+
+    // If still not absolute, treat it as relative to workspace root
+    if (!path.isAbsolute(argPath)) {
+        argPath = path.join(workspaceRoot, argPath);
+    }
+    return argPath;
+}
+
 // This method is called when your extension is activated.
 // Your extension is activated the very first time the command is executed.
 export function activate(context: vscode.ExtensionContext) {
 
     // Create a diagnostic collection.
-    const diagnosticCollection = vscode.languages.createDiagnosticCollection("Cppcheck Lite");
+    const diagnosticCollection = vscode.languages.createDiagnosticCollection("Cppcheck");
     context.subscriptions.push(diagnosticCollection);
+    
+    // set up a map of timers per document URI for debounce for continuous analysis triggers
+    // I.e. document has been changed -> DEBOUNCE_MS time passed since last change -> run cppcheck
+    const debounceTimers: Map<string, NodeJS.Timeout> = new Map();
+    const DEBOUNCE_MS = 1000;
 
     async function handleDocument(document: vscode.TextDocument) {
         // Only process C/C++ files.
         if (!["c", "cpp"].includes(document.languageId)) {
             // Not a C/C++ file, skip
             return;
-
         }
 
         // Check if the document is visible in any editor
@@ -58,12 +93,12 @@ export function activate(context: vscode.ExtensionContext) {
         }
 
         const config = vscode.workspace.getConfiguration();
-        const isEnabled = config.get<boolean>("cppcheck-lite.enable", true);
-        const extraArgs = config.get<string>("cppcheck-lite.arguments", "");
-        const minSevString = config.get<string>("cppcheck-lite.minSeverity", "info");
-        const standard = config.get<string>("cppcheck-lite.standard", "c++17");
-        const userPath = config.get<string>("cppcheck-lite.path")?.trim() || "";
-        const commandPath = userPath ? userPath : "cppcheck";
+        const isEnabled = config.get<boolean>("cppcheck-official.enable", true);
+        const extraArgs = config.get<string>("cppcheck-official.arguments", "");
+        const minSevString = config.get<string>("cppcheck-official.minSeverity", "info");
+        const standard = config.get<string>("cppcheck-official.standard", "c++17");
+        const userPath = config.get<string>("cppcheck-official.path")?.trim() || "";
+        const commandPath = userPath ? resolvePath(userPath) : "cppcheck";
 
         // If disabled, clear any existing diagnostics for this doc.
         if (!isEnabled) {
@@ -75,14 +110,14 @@ export function activate(context: vscode.ExtensionContext) {
         cp.exec(`"${commandPath}" --version`, (error) => {
             if (error) {
                 vscode.window.showErrorMessage(
-                    `Cppcheck Lite: Could not find or run '${commandPath}'. ` +
-                    `Please install cppcheck or set 'cppcheck-lite.path' correctly.`
+                    `Cppcheck: Could not find or run '${commandPath}'. ` +
+                    `Please install cppcheck or set 'cppcheck-official.path' correctly.`
                 );
                 return;
             }
         });
 
-        await runCppcheck(
+        await runCppcheckOnFileXML(
             document,
             commandPath,
             extraArgs,
@@ -91,6 +126,27 @@ export function activate(context: vscode.ExtensionContext) {
             diagnosticCollection
         );
     }
+
+    // TODO: Reimplement continuous analysis. Requires cppcheck update (expected in 2.20)
+    async function handleDocumentContinuous(e: vscode.TextDocumentChangeEvent) {
+        const document : vscode.TextDocument = e.document;
+        const uriKey = document.uri.toString();
+
+        // clear any existing timer for this document
+        if (debounceTimers.has(uriKey)) {
+            clearTimeout(debounceTimers.get(uriKey)!);
+        }
+
+        // schedule a new run
+        const timer = setTimeout(async () => {
+            debounceTimers.delete(uriKey);
+            await handleDocument(document);
+        }, DEBOUNCE_MS);
+        debounceTimers.set(uriKey, timer);
+    }
+
+    // Run cppcheck when document is changed, with debounce
+    // vscode.workspace.onDidChangeTextDocument(handleDocumentContinuous, null, context.subscriptions);
 
     // Listen for file saves.
     vscode.workspace.onDidSaveTextDocument(handleDocument, null, context.subscriptions);
@@ -112,7 +168,7 @@ export function activate(context: vscode.ExtensionContext) {
     }, null, context.subscriptions);
 }
 
-async function runCppcheck(
+async function runCppcheckOnFileXML(
     document: vscode.TextDocument,
     commandPath: string,
     extraArgs: string,
@@ -126,49 +182,110 @@ async function runCppcheck(
     const filePath = document.fileName;
     const minSevNum = parseMinSeverity(minSevString);
     const standardArg = standard !== "<none>" ? `--std=${standard}` : "";
-    const command = `"${commandPath}" ${standardArg} ${extraArgs} "${filePath.replace(/\\/g, '/')}"`.trim();
 
-    console.log("Cppcheck command:", command);
-
-    cp.exec(command, (error, stdout, stderr) => {
-        if (error) {
-            vscode.window.showErrorMessage(`Cppcheck Lite: ${error.message}`);
-            return;
+    // Resolve paths for arguments where applicable
+    const extraArgsParsed = (extraArgs.split(" ")).map((arg) => {
+        if (arg.startsWith('--project')) {
+            const splitArg = arg.split('=');
+            return `${splitArg[0]}=${resolvePath(splitArg[1])}`;
         }
+        return arg;
+    });
 
-        const allOutput = stdout + "\n" + stderr;
-        const diagnostics: vscode.Diagnostic[] = [];
+    const args = [
+        '--enable=all',
+        '--xml',
+        '--xml-version=2',
+        standardArg,
+        ...extraArgsParsed,
+        filePath.replace(/\\/g, '/')
+    ].filter(Boolean);
 
-        // Example lines we might see:
-        //   file.cpp:6:1: error: Something [id]
-        //   file.cpp:14:2: warning: Something else [id]
-        const regex = /^(.*?):(\d+):(\d+):\s*(error|warning|style|performance|information|info|note):\s*(.*)$/gm;
+    const proc = cp.spawn(commandPath, args);
 
-        let match;
-        while ((match = regex.exec(allOutput)) !== null) {
-            const [, file, lineStr, colStr, severityStr, message] = match;
-            const line = parseInt(lineStr, 10) - 1;
-            const col = parseInt(colStr, 10);
-            const diagSeverity = parseSeverity(severityStr);
+    // if spawn fails (e.g. ENOENT or permission denied)
+    proc.on("error", (err) => {
+        console.error("Failed to start cppcheck:", err);
+        vscode.window.showErrorMessage(`Cppcheck failed to start: ${err.message}`);
+    });
 
-            // Filter out if severity is less than our minimum
-            if (severityToNumber(diagSeverity) < minSevNum) {
-                continue;
+    let xmlOutput = "";
+    let out = "";
+    proc.stderr.on("data", d => xmlOutput += d.toString());
+    proc.stdout.on("data", d => out += d.toString());
+    proc.on("close", code => {
+        if (code && code > 0) {
+            // Non-zero code means an error has occured
+            let errorMessage = `Cppcheck failed with code ${code} (unknown error)`;
+            if (out.trim().length > 0) {
+                errorMessage = out.trim();
+            }
+            vscode.window.showErrorMessage(errorMessage);
+        }
+        const parser = new xml2js.Parser({ explicitArray: true });
+        parser.parseString(xmlOutput, (err, result) => {
+            if (err) {
+                console.error("XML parse error:", err);
+                return;
             }
 
-            // Only show diagnostics for the current file
-            if (!filePath.endsWith(file)) {
-                continue;
+            const errors = result.results?.errors?.[0]?.error || [];
+            const diagnostics: vscode.Diagnostic[] = [];
+
+            for (const e of errors) {
+                const locations = e.location || [];
+                if (!locations.length) {
+                    continue;
+                }
+
+                // Cppcheck line number is 1-indexed, while VS Code uses 0-indexing
+                const mainLoc = locations[locations.length - 1].$;
+                const line = Number(mainLoc.line) - 1;
+                // Invalid line number usually means non-analysis output 
+                if (isNaN(line) || line < 0 || line >= document.lineCount) {
+                    continue;
+                }
+
+                const severity = parseSeverity(e.$.severity);
+                if (severityToNumber(severity) < minSevNum) {
+                    continue;
+                }
+
+                const range = new vscode.Range(line, 0, line, document.lineAt(line).text.length);
+                const diagnostic = new vscode.Diagnostic(range, e.$.msg, severity);
+                diagnostic.source = "cppcheck";
+                diagnostic.code = e.$.id;
+
+                // Related Information
+                const relatedInfos: vscode.DiagnosticRelatedInformation[] = [];
+                for (let i = 0; i < locations.length; i++) {
+                    const loc = locations[i].$;
+                    const msg = loc.info;
+                    const lLine = Number(loc.line) - 1;
+
+                    if (msg === null || msg === undefined || isNaN(lLine) || lLine < 0 || lLine >= document.lineCount) {
+                        continue;
+                    }
+
+                    const relatedRange = new vscode.Range(
+                        lLine, 0,
+                        lLine, document.lineAt(lLine).text.length
+                    );
+
+                    relatedInfos.push(
+                        new vscode.DiagnosticRelatedInformation(
+                            new vscode.Location(document.uri, relatedRange),
+                            msg
+                        )
+                    );
+                }
+                if (relatedInfos.length > 0) {
+                    diagnostic.relatedInformation = relatedInfos;
+                }
+                diagnostics.push(diagnostic);
             }
-
-            const range = new vscode.Range(line, col, line, col);
-            const diagnostic = new vscode.Diagnostic(range, message, diagSeverity);
-            diagnostic.code = standard !== "<none>" ? standard : "";
-
-            diagnostics.push(diagnostic);
-        }
-
-        diagnosticCollection.set(document.uri, diagnostics);
+            diagnosticCollection.set(document.uri, diagnostics);
+        });
     });
 }
 
