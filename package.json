@@ -9,7 +9,7 @@
   "author": "David Ramnerö <david.ramnero@cppchecksolutions.com>",
   "repository": {
     "type": "git",
-    "url": "https://github.com/davidramnero/cppcheck-vscode"
+    "url": "https://github.com/cppchecksolutions/vscode-cppcheck-official"
   },
   "publisher": "cppcheck",
   "license": "MIT",
@@ -67,7 +67,7 @@
               "c++20"
             ],
             "default": "c++20",
-            "description": "C/C++ standard to use for cppcheck (`--std=<id>`). Select `<none>` to specify it in `cppcheck-vscode.arguments` or let `cppcheck` use its default setting."
+            "description": "C/C++ standard to use for cppcheck (`--std=<id>`). Select `<none>` to specify it in `cppcheck-official.arguments` or let `cppcheck` use its default setting."
           }
         }
       },
