@@ -82,7 +82,7 @@
           },
           "cppcheck-official.arguments": {
             "type": "string",
-            "default": "",
+            "default": "--project=/Users/davidramnero/utveckling/vscode-cppcheck-test/build/compile_commands.json",
             "description": "Additional command line arguments for cppcheck."
           }
         }
