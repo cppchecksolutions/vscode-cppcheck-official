@@ -270,8 +270,9 @@ async function runCppcheckOnFileXML(
 
                 // Related Information
                 const relatedInfos: vscode.DiagnosticRelatedInformation[] = [];
-                for (let i = 0; i < locations.length; i++) {
-                    const loc = locations[i].$;
+                for (let i = 1; i <= locations.length; i++) {
+                    // Related information is ordered in reverse in XML object
+                    const loc = locations[locations.length - i].$;
                     const msg = loc.info;
                     const lLine = Number(loc.line) - 1;
 
