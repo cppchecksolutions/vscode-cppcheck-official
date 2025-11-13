@@ -196,6 +196,9 @@ async function runCppcheckOnFileXML(
         '--enable=all',
         '--xml',
         '--xml-version=2',
+        '--suppress=unusedFunction',
+        '--suppress=missingInclude',
+        '--suppress=missingIncludeSystem',
         standardArg,
         ...extraArgsParsed,
         filePath.replace(/\\/g, '/')
