@@ -198,9 +198,12 @@ async function runCppcheckOnFileXML(
             '--enable=all',
             '--xml',
             '--xml-version=2',
+            '--suppress=unusedFunction',
+            '--suppress=missingInclude',
+            '--suppress=missingIncludeSystem',
             `--file-filter=${filePath.replace(/\\/g, '/')}`,
             standardArg,
-            ...extraArgsParsed
+            ...extraArgsParsed,
         ].filter(Boolean);
         proc = cp.spawn(commandPath, args);
     } else {
@@ -208,6 +211,9 @@ async function runCppcheckOnFileXML(
             '--enable=all',
             '--xml',
             '--xml-version=2',
+            '--suppress=unusedFunction',
+            '--suppress=missingInclude',
+            '--suppress=missingIncludeSystem',
             standardArg,
             ...extraArgsParsed,
             filePath.replace(/\\/g, '/')
