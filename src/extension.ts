@@ -192,16 +192,28 @@ async function runCppcheckOnFileXML(
         return arg;
     });
 
-    const args = [
-        '--enable=all',
-        '--xml',
-        '--xml-version=2',
-        standardArg,
-        ...extraArgsParsed,
-        filePath.replace(/\\/g, '/')
-    ].filter(Boolean);
-
-    const proc = cp.spawn(commandPath, args);
+    let proc;
+    if (extraArgs.includes("--project")) {
+        const args = [
+            '--enable=all',
+            '--xml',
+            '--xml-version=2',
+            `--file-filter=${filePath.replace(/\\/g, '/')}`,
+            standardArg,
+            ...extraArgsParsed
+        ].filter(Boolean);
+        proc = cp.spawn(commandPath, args);
+    } else {
+        const args = [
+            '--enable=all',
+            '--xml',
+            '--xml-version=2',
+            standardArg,
+            ...extraArgsParsed,
+            filePath.replace(/\\/g, '/')
+        ].filter(Boolean);
+        proc = cp.spawn(commandPath, args);
+    }
 
     // if spawn fails (e.g. ENOENT or permission denied)
     proc.on("error", (err) => {
