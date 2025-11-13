@@ -100,6 +100,11 @@ export function activate(context: vscode.ExtensionContext) {
         const userPath = config.get<string>("cppcheck-official.path")?.trim() || "";
         const commandPath = userPath ? resolvePath(userPath) : "cppcheck";
 
+        const filteredWarningTypes = [
+            'missingInclude',
+            'missingIncludeSystem'
+        ];
+
         // If disabled, clear any existing diagnostics for this doc.
         if (!isEnabled) {
             diagnosticCollection.delete(document.uri);
@@ -123,6 +128,7 @@ export function activate(context: vscode.ExtensionContext) {
             extraArgs,
             minSevString,
             standard,
+            filteredWarningTypes,
             diagnosticCollection
         );
     }
@@ -174,6 +180,7 @@ async function runCppcheckOnFileXML(
     extraArgs: string,
     minSevString: string,
     standard: string,
+    filteredWarningTypes: string[],
     diagnosticCollection: vscode.DiagnosticCollection
 ): Promise<void> {
     // Clear existing diagnostics for this file
@@ -233,6 +240,11 @@ async function runCppcheckOnFileXML(
             const diagnostics: vscode.Diagnostic[] = [];
 
             for (const e of errors) {
+                const id = e.$.id;
+                if (filteredWarningTypes.includes(id)) {
+                    continue;
+                }
+
                 const locations = e.location || [];
                 if (!locations.length) {
                     continue;
