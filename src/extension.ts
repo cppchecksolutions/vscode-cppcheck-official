@@ -192,19 +192,34 @@ async function runCppcheckOnFileXML(
         return arg;
     });
 
-    const args = [
-        '--enable=all',
-        '--xml',
-        '--xml-version=2',
-        '--suppress=unusedFunction',
-        '--suppress=missingInclude',
-        '--suppress=missingIncludeSystem',
-        standardArg,
-        ...extraArgsParsed,
-        filePath.replace(/\\/g, '/')
-    ].filter(Boolean);
-
-    const proc = cp.spawn(commandPath, args);
+    let proc;
+    if (extraArgs.includes("--project")) {
+        const args = [
+            '--enable=all',
+            '--xml',
+            '--xml-version=2',
+            '--suppress=unusedFunction',
+            '--suppress=missingInclude',
+            '--suppress=missingIncludeSystem',
+            `--file-filter=${filePath.replace(/\\/g, '/')}`,
+            standardArg,
+            ...extraArgsParsed,
+        ].filter(Boolean);
+        proc = cp.spawn(commandPath, args);
+    } else {
+        const args = [
+            '--enable=all',
+            '--xml',
+            '--xml-version=2',
+            '--suppress=unusedFunction',
+            '--suppress=missingInclude',
+            '--suppress=missingIncludeSystem',
+            standardArg,
+            ...extraArgsParsed,
+            filePath.replace(/\\/g, '/')
+        ].filter(Boolean);
+        proc = cp.spawn(commandPath, args);
+    }
 
     // if spawn fails (e.g. ENOENT or permission denied)
     proc.on("error", (err) => {
@@ -261,8 +276,9 @@ async function runCppcheckOnFileXML(
 
                 // Related Information
                 const relatedInfos: vscode.DiagnosticRelatedInformation[] = [];
-                for (let i = 0; i < locations.length; i++) {
-                    const loc = locations[i].$;
+                for (let i = 1; i <= locations.length; i++) {
+                    // Related information is ordered in reverse in XML object
+                    const loc = locations[locations.length - i].$;
                     const msg = loc.info;
                     const lLine = Number(loc.line) - 1;
 
