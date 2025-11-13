@@ -9,7 +9,7 @@
 - **Configurable severity threshold**: Filter out messages below a chosen severity level (`info`, `warning`, or `error`).
 - **Set C/C++ standard**: Easily specify `--std=<id>` (e.g. `c++17`, `c99`, etc.).
 - **Diagnostic cleanup**: When you close a file, its diagnostics are automatically cleared.
-
+- **Project file support**: You can feed your project file to cppcheck through the `--project` flag in the `cppcheck-official.arguments` field in the extension settings.
 ## Requirements
 
  **Cppcheck** must be installed on your system.  
