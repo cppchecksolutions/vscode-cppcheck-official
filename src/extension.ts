@@ -233,7 +233,6 @@ async function runCppcheckOnFileXML(
             const diagnostics: vscode.Diagnostic[] = [];
 
             for (const e of errors) {
-                console.log('e', e);
                 const locations = e.location || [];
                 if (!locations.length) {
                     continue;
