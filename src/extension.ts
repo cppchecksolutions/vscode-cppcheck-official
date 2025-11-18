@@ -96,7 +96,7 @@ export function activate(context: vscode.ExtensionContext) {
         const isEnabled = config.get<boolean>("cppcheck-official.enable", true);
         const extraArgs = config.get<string>("cppcheck-official.arguments", "");
         const minSevString = config.get<string>("cppcheck-official.minSeverity", "info");
-        const standard = config.get<string>("cppcheck-official.standard", "c++17");
+        const standard = config.get<string>("cppcheck-official.standard", "c++20");
         const userPath = config.get<string>("cppcheck-official.path")?.trim() || "";
         const commandPath = userPath ? resolvePath(userPath) : "cppcheck";
 
@@ -197,7 +197,6 @@ async function runCppcheckOnFileXML(
         const args = [
             '--enable=all',
             '--xml',
-            '--xml-version=2',
             '--suppress=unusedFunction',
             '--suppress=missingInclude',
             '--suppress=missingIncludeSystem',
@@ -210,7 +209,6 @@ async function runCppcheckOnFileXML(
         const args = [
             '--enable=all',
             '--xml',
-            '--xml-version=2',
             '--suppress=unusedFunction',
             '--suppress=missingInclude',
             '--suppress=missingIncludeSystem',
