@@ -258,6 +258,12 @@ async function runCppcheckOnFileXML(
 
                 // Cppcheck line number is 1-indexed, while VS Code uses 0-indexing
                 const mainLoc = locations[locations.length - 1].$;
+                
+                // If main location is not current file, then skip displaying warning
+                if (!filePath.endsWith(mainLoc.file)) {
+                    continue;
+                }
+
                 const line = Number(mainLoc.line) - 1;
                 // Invalid line number usually means non-analysis output 
                 if (isNaN(line) || line < 0 || line >= document.lineCount) {
