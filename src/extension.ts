@@ -254,7 +254,6 @@ async function runCppcheckOnFileXML(
                     continue;
                 }
 
-                // Cppcheck line number is 1-indexed, while VS Code uses 0-indexing
                 const mainLoc = locations[locations.length - 1].$;
                 
                 // If main location is not current file, then skip displaying warning
@@ -262,15 +261,17 @@ async function runCppcheckOnFileXML(
                     continue;
                 }
 
+                // Cppcheck line number is 1-indexed, while VS Code uses 0-indexing
                 const line = Number(mainLoc.line) - 1;
                 // Invalid line number usually means non-analysis output 
                 if (isNaN(line) || line < 0 || line >= document.lineCount) {
                     continue;
                 }
 
+                // Cppcheck col number is 1-indexed, while VS Code uses 0-indexing
                 let col = Number(mainLoc.column) - 1;
                 if (isNaN(col) || col < 0 || col > document.lineAt(line).text.length) {
-                    col = 1;
+                    col = 0;
                 }
 
                 const severity = parseSeverity(e.$.severity);
