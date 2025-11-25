@@ -268,12 +268,19 @@ async function runCppcheckOnFileXML(
                     continue;
                 }
 
+                let col = Number(mainLoc.column) - 1;
+                console.log('column # ', mainLoc);
+                // Invalid line number usually means non-analysis output 
+                if (isNaN(col) || col < 0 || col > document.lineAt(line).text.length) {
+                    col = 1;
+                }
+
                 const severity = parseSeverity(e.$.severity);
                 if (severityToNumber(severity) < minSevNum) {
                     continue;
                 }
 
-                const range = new vscode.Range(line, 0, line, document.lineAt(line).text.length);
+                const range = new vscode.Range(line, col, line, document.lineAt(line).text.length);
                 const diagnostic = new vscode.Diagnostic(range, e.$.msg, severity);
                 diagnostic.source = "cppcheck";
                 diagnostic.code = e.$.id;
