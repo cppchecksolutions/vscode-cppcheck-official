@@ -269,8 +269,6 @@ async function runCppcheckOnFileXML(
                 }
 
                 let col = Number(mainLoc.column) - 1;
-                console.log('column # ', mainLoc);
-                // Invalid line number usually means non-analysis output 
                 if (isNaN(col) || col < 0 || col > document.lineAt(line).text.length) {
                     col = 1;
                 }
