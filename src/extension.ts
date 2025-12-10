@@ -197,6 +197,7 @@ async function runCppcheckOnFileXML(
         const args = [
             '--enable=all',
             '--xml',
+            '--inline-suppr',
             '--suppress=unusedFunction',
             '--suppress=missingInclude',
             '--suppress=missingIncludeSystem',
