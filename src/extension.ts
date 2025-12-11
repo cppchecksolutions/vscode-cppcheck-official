@@ -196,6 +196,7 @@ async function runCppcheckOnFileXML(
     if (extraArgs.includes("--project")) {
         const args = [
             '--enable=all',
+            '--inline-suppr',
             '--xml',
             '--suppress=unusedFunction',
             '--suppress=missingInclude',
@@ -208,6 +209,7 @@ async function runCppcheckOnFileXML(
     } else {
         const args = [
             '--enable=all',
+            '--inline-suppr',
             '--xml',
             '--suppress=unusedFunction',
             '--suppress=missingInclude',
