@@ -10,6 +10,23 @@ enum SeverityNumber {
     Error = 2
 }
 
+const criticalWarningTypes = [
+    'cppcheckError',
+    'cppcheckLimit',
+    'includeNestedTooDeeply',
+    'internalAstError',
+    'instantiationError',
+    'internalError',
+    'missingFile',
+    'premium-internalError',
+    'premium-invalidArgument',
+    'premium-invalidLicense',
+    'preprocessorErrorDirective',
+    'syntaxError',
+    'unhandledChar',
+    'unknownMacro'
+];
+
 function parseSeverity(str: string): vscode.DiagnosticSeverity {
     const lower = str.toLowerCase();
     if (lower.includes("error")) {
@@ -257,9 +274,9 @@ async function runCppcheckOnFileXML(
                 }
 
                 const mainLoc = locations[locations.length - 1].$;
-                
-                // If main location is not current file, then skip displaying warning
-                if (!filePath.endsWith(mainLoc.file)) {
+                console.log('error id ', e.$.id, 'error', e);
+                // If main location is not current file, then skip displaying warning unless it is critical
+                if (!filePath.endsWith(mainLoc.file) && !criticalWarningTypes.includes(e.$.id)) {
                     continue;
                 }
 
