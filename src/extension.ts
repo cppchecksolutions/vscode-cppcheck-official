@@ -179,7 +179,8 @@ async function runCppcheckOnFileXML(
     // Clear existing diagnostics for this file
     diagnosticCollection.delete(document.uri);
 
-    const filePath = document.fileName;
+    // Replace backslashes (used in paths in Windows environment)
+    const filePath = document.fileName.replaceAll('\\', '/');
     const minSevNum = parseMinSeverity(minSevString);
     const standardArg = standard !== "<none>" ? `--std=${standard}` : "";
 
@@ -201,11 +202,13 @@ async function runCppcheckOnFileXML(
             '--suppress=unusedFunction',
             '--suppress=missingInclude',
             '--suppress=missingIncludeSystem',
-            `--file-filter=${filePath.replace(/\\/g, '/')}`,
+            `--file-filter=${filePath}`,
             standardArg,
             ...extraArgsParsed,
         ].filter(Boolean);
-        proc = cp.spawn(commandPath, args);
+        proc = cp.spawn(commandPath, args, {
+            cwd: path.dirname(document.fileName),
+        });
     } else {
         const args = [
             '--enable=all',
@@ -216,9 +219,11 @@ async function runCppcheckOnFileXML(
             '--suppress=missingIncludeSystem',
             standardArg,
             ...extraArgsParsed,
-            filePath.replace(/\\/g, '/')
+            filePath,
         ].filter(Boolean);
-        proc = cp.spawn(commandPath, args);
+        proc = cp.spawn(commandPath, args, {
+            cwd: path.dirname(document.fileName),
+        });
     }
 
     // if spawn fails (e.g. ENOENT or permission denied)
