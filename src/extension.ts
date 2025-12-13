@@ -266,25 +266,29 @@ async function runCppcheckOnFileXML(
 
             const errors = result.results?.errors?.[0]?.error || [];
             const diagnostics: vscode.Diagnostic[] = [];
-
             for (const e of errors) {
+                const isCriticalError = criticalWarningTypes.includes(e.$.id);
                 const locations = e.location || [];
                 if (!locations.length) {
                     continue;
                 }
 
                 const mainLoc = locations[locations.length - 1].$;
-                console.log('error id ', e.$.id, 'error', e);
+                
                 // If main location is not current file, then skip displaying warning unless it is critical
-                if (!filePath.endsWith(mainLoc.file) && !criticalWarningTypes.includes(e.$.id)) {
+                if (!isCriticalError && !filePath.endsWith(mainLoc.file)) {
                     continue;
                 }
 
                 // Cppcheck line number is 1-indexed, while VS Code uses 0-indexing
-                const line = Number(mainLoc.line) - 1;
+                let line = Number(mainLoc.line) - 1;
                 // Invalid line number usually means non-analysis output 
                 if (isNaN(line) || line < 0 || line >= document.lineCount) {
-                    continue;
+                    if (isCriticalError) {
+                        line = 0;
+                    } else {
+                        continue;
+                    }
                 }
 
                 // Cppcheck col number is 1-indexed, while VS Code uses 0-indexing
@@ -294,7 +298,7 @@ async function runCppcheckOnFileXML(
                 }
 
                 const severity = parseSeverity(e.$.severity);
-                if (severityToNumber(severity) < minSevNum) {
+                if (!isCriticalError && severityToNumber(severity) < minSevNum) {
                     continue;
                 }
 
@@ -302,7 +306,6 @@ async function runCppcheckOnFileXML(
                 const diagnostic = new vscode.Diagnostic(range, e.$.msg, severity);
                 diagnostic.source = "cppcheck";
                 diagnostic.code = e.$.id;
-
                 // Related Information
                 const relatedInfos: vscode.DiagnosticRelatedInformation[] = [];
                 for (let i = 1; i <= locations.length; i++) {
