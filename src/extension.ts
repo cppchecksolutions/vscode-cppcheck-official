@@ -10,6 +10,23 @@ enum SeverityNumber {
     Error = 2
 }
 
+const criticalWarningTypes = [
+    'cppcheckError',
+    'cppcheckLimit',
+    'includeNestedTooDeeply',
+    'internalAstError',
+    'instantiationError',
+    'internalError',
+    'missingFile',
+    'premium-internalError',
+    'premium-invalidArgument',
+    'premium-invalidLicense',
+    'preprocessorErrorDirective',
+    'syntaxError',
+    'unhandledChar',
+    'unknownMacro'
+];
+
 function parseSeverity(str: string): vscode.DiagnosticSeverity {
     const lower = str.toLowerCase();
     if (lower.includes("error")) {
@@ -251,6 +268,7 @@ async function runCppcheckOnFileXML(
             const diagnostics: vscode.Diagnostic[] = [];
 
             for (const e of errors) {
+                const isCriticalError = criticalWarningTypes.includes(e.$.id);
                 const locations = e.location || [];
                 if (!locations.length) {
                     continue;
@@ -258,16 +276,20 @@ async function runCppcheckOnFileXML(
 
                 const mainLoc = locations[locations.length - 1].$;
                 
-                // If main location is not current file, then skip displaying warning
-                if (!filePath.endsWith(mainLoc.file)) {
+                // If main location is not current file, then skip displaying warning unless it is critical
+                if (!isCriticalError && !filePath.endsWith(mainLoc.file)) {
                     continue;
                 }
 
                 // Cppcheck line number is 1-indexed, while VS Code uses 0-indexing
-                const line = Number(mainLoc.line) - 1;
+                let line = Number(mainLoc.line) - 1;
                 // Invalid line number usually means non-analysis output 
                 if (isNaN(line) || line < 0 || line >= document.lineCount) {
-                    continue;
+                    if (isCriticalError) {
+                        line = 0;
+                    } else {
+                        continue;
+                    }
                 }
 
                 // Cppcheck col number is 1-indexed, while VS Code uses 0-indexing
@@ -277,7 +299,7 @@ async function runCppcheckOnFileXML(
                 }
 
                 const severity = parseSeverity(e.$.severity);
-                if (severityToNumber(severity) < minSevNum) {
+                if (!isCriticalError && severityToNumber(severity) < minSevNum) {
                     continue;
                 }
 
