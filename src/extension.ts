@@ -266,6 +266,7 @@ async function runCppcheckOnFileXML(
 
             const errors = result.results?.errors?.[0]?.error || [];
             const diagnostics: vscode.Diagnostic[] = [];
+
             for (const e of errors) {
                 const isCriticalError = criticalWarningTypes.includes(e.$.id);
                 const locations = e.location || [];
