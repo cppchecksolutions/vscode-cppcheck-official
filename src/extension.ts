@@ -307,6 +307,7 @@ async function runCppcheckOnFileXML(
                 const diagnostic = new vscode.Diagnostic(range, e.$.msg, severity);
                 diagnostic.source = "cppcheck";
                 diagnostic.code = e.$.id;
+
                 // Related Information
                 const relatedInfos: vscode.DiagnosticRelatedInformation[] = [];
                 for (let i = 1; i <= locations.length; i++) {
