@@ -24,7 +24,8 @@ const criticalWarningTypes = [
     'preprocessorErrorDirective',
     'syntaxError',
     'unhandledChar',
-    'unknownMacro'
+    'unknownMacro',
+    'checkersReport'
 ];
 
 function parseSeverity(str: string): vscode.DiagnosticSeverity {
@@ -270,11 +271,11 @@ async function runCppcheckOnFileXML(
             for (const e of errors) {
                 const isCriticalError = criticalWarningTypes.includes(e.$.id);
                 const locations = e.location || [];
-                if (!locations.length) {
+                if (!isCriticalError && !locations.length) {
                     continue;
                 }
 
-                const mainLoc = locations[locations.length - 1].$;
+                const mainLoc = locations.length ? locations[locations.length - 1]?.$ : [];
                 
                 // If main location is not current file, then skip displaying warning unless it is critical
                 if (!isCriticalError && !filePath.endsWith(mainLoc.file)) {
