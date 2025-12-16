@@ -320,13 +320,14 @@ async function runCppcheckOnFileXML(
                     const loc = locations[locations.length - i].$;
                     const msg = loc.info;
                     const lLine = Number(loc.line) - 1;
+                    const lCol = Number(loc.col) - 1;
 
                     if (msg === null || msg === undefined || isNaN(lLine) || lLine < 0 || lLine >= document.lineCount) {
                         continue;
                     }
 
                     const relatedRange = new vscode.Range(
-                        lLine, 0,
+                        lLine, lCol,
                         lLine, document.lineAt(lLine).text.length
                     );
 
