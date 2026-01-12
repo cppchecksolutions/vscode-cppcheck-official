@@ -113,7 +113,6 @@ export function activate(context: vscode.ExtensionContext) {
         const isEnabled = config.get<boolean>("cppcheck-official.enable", true);
         const extraArgs = config.get<string>("cppcheck-official.arguments", "");
         const minSevString = config.get<string>("cppcheck-official.minSeverity", "info");
-        const standard = config.get<string>("cppcheck-official.standard", "c++20");
         const userPath = config.get<string>("cppcheck-official.path")?.trim() || "";
         const commandPath = userPath ? resolvePath(userPath) : "cppcheck";
 
@@ -139,7 +138,6 @@ export function activate(context: vscode.ExtensionContext) {
             commandPath,
             extraArgs,
             minSevString,
-            standard,
             diagnosticCollection
         );
     }
@@ -190,7 +188,6 @@ async function runCppcheckOnFileXML(
     commandPath: string,
     extraArgs: string,
     minSevString: string,
-    standard: string,
     diagnosticCollection: vscode.DiagnosticCollection
 ): Promise<void> {
     // Clear existing diagnostics for this file
@@ -199,7 +196,6 @@ async function runCppcheckOnFileXML(
     // Replace backslashes (used in paths in Windows environment)
     const filePath = document.fileName.replaceAll('\\', '/');
     const minSevNum = parseMinSeverity(minSevString);
-    const standardArg = standard !== "<none>" ? `--std=${standard}` : "";
 
     // Resolve paths for arguments where applicable
     const extraArgsParsed = (extraArgs.split(" ")).map((arg) => {
@@ -220,7 +216,6 @@ async function runCppcheckOnFileXML(
             '--suppress=missingInclude',
             '--suppress=missingIncludeSystem',
             `--file-filter=${filePath}`,
-            standardArg,
             ...extraArgsParsed,
         ].filter(Boolean);
         proc = cp.spawn(commandPath, args, {
@@ -234,7 +229,6 @@ async function runCppcheckOnFileXML(
             '--suppress=unusedFunction',
             '--suppress=missingInclude',
             '--suppress=missingIncludeSystem',
-            standardArg,
             ...extraArgsParsed,
             filePath,
         ].filter(Boolean);
