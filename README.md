@@ -29,7 +29,6 @@ This extension contributes the following settings under `cppcheck-official.*`:
 
 - **`cppcheck-official.enable`**: (boolean) Enable or disable the extension.  
 - **`cppcheck-official.minSeverity`**: (string) Minimum severity to report (`info`, `warning`, or `error`).  `info` shows style, performance, portability and information messages.
-- **`cppcheck-official.standard`**: (string) Sets the C/C++ standard with `--std=<id>` (e.g. `c11`, `c++17`).
 - **`cppcheck-official.arguments`**: (string) Additional [command line arguments](https://cppcheck.sourceforge.io/manual.pdf?#page=5) to pass to `cppcheck`.  
 - **`cppcheck-official.path`**: (string) Path to the `cppcheck` executable. If left empty, `cppcheck` from the system PATH is used. Supports paths relative to workspace folder on the formats `./RELATIVE_PATH`, `../RELATIVE_PATH` or `${workspaceFolder}/RELATIVE_PATH`.
 
