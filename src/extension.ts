@@ -103,7 +103,8 @@ export function activate(context: vscode.ExtensionContext) {
         }
 
         // Check if the document is visible in any editor
-        const isVisible = vscode.window.visibleTextEditors.some(editor => editor.document.uri.toString() === document.uri.toString());
+        const isVisible = vscode.window.visibleTextEditors.some(editor =>
+            editor.document.uri.toString().replaceAll('\\', '/') === document.uri.toString().replaceAll('\\', '/'));
         if (!isVisible) {
             // Document is not visible, skip
             return;
