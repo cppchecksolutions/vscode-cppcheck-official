@@ -4,11 +4,16 @@ import * as path from "path";
 import * as os from "os";
 import * as xml2js from 'xml2js';
 
+import { runScript } from './util/scripts';
+
 enum SeverityNumber {
     Info = 0,
     Warning = 1,
     Error = 2
 }
+
+// If a script generates arguments at extension activation they are saved in dynamicArgs
+const dynamicArgs : Array<string> = [];
 
 const criticalWarningTypes = [
     'cppcheckError',
@@ -90,6 +95,20 @@ export function activate(context: vscode.ExtensionContext) {
     const diagnosticCollection = vscode.languages.createDiagnosticCollection("Cppcheck");
     context.subscriptions.push(diagnosticCollection);
     
+    // If an argument requires us to run any scripts we do it here
+    const config = vscode.workspace.getConfiguration();
+    const args = config.get<string>("cppcheck-official.arguments", "");
+    const argsWithScripts = args.split(" ").filter((arg) => arg.includes('§{'));
+    argsWithScripts.forEach(async (arg) => {
+        // argType will look like e.g. --project
+        const argType = arg.split("=")[0];
+        const argValue = arg.split("=")[1];
+        // Remove ${ from the beginning and slice } away from the end  of argValue
+        const scriptCommand = argValue.split("{")[1].slice(0, - 1);
+        const scriptOutput = await runScript(scriptCommand);
+        dynamicArgs.push(`${argType}=${scriptOutput}`);
+    });
+
     // set up a map of timers per document URI for debounce for continuous analysis triggers
     // I.e. document has been changed -> DEBOUNCE_MS time passed since last change -> run cppcheck
     const debounceTimers: Map<string, NodeJS.Timeout> = new Map();
@@ -198,8 +217,12 @@ async function runCppcheckOnFileXML(
     const filePath = document.fileName.replaceAll('\\', '/');
     const minSevNum = parseMinSeverity(minSevString);
 
+    // Arguments specified with scripts are replaced with script output (dynamicArgs)
+    const staticArgs = extraArgs.split(" ").filter((arg) => !arg.includes("${"));
+    const allArgs = staticArgs.concat(dynamicArgs);
+    
     // Resolve paths for arguments where applicable
-    const extraArgsParsed = (extraArgs.split(" ")).map((arg) => {
+    const extraArgsParsed = allArgs.map((arg) => {
         if (arg.startsWith('--project')) {
             const splitArg = arg.split('=');
             return `${splitArg[0]}=${resolvePath(splitArg[1])}`;
