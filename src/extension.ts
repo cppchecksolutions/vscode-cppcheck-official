@@ -1,10 +1,10 @@
 import * as vscode from 'vscode';
 import * as cp from 'child_process';
 import * as path from "path";
-import * as os from "os";
 import * as xml2js from 'xml2js';
 
 import { runScript } from './util/scripts';
+import { resolvePath } from './util/path';
 
 enum SeverityNumber {
     Info = 0,
@@ -59,37 +59,9 @@ function parseMinSeverity(str: string): SeverityNumber {
     }
 }
 
-export function resolvePath(argPath: string): string {
-    const folders = vscode.workspace.workspaceFolders;
-    const workspaceRoot = folders && folders.length > 0
-        ? folders[0].uri.fsPath
-        : process.cwd();
-
-    // Expand ${workspaceFolder}
-    if (argPath.includes("${workspaceFolder}")) {
-        argPath = argPath.replace("${workspaceFolder}", workspaceRoot);
-    }
-
-    // Expand tilde (~) to home directory
-    if (argPath.startsWith("~")) {
-        argPath = path.join(os.homedir(), argPath.slice(1));
-    }
-
-    // Expand ./ or ../ relative paths (relative to workspace root if available)
-    if (argPath.startsWith("./") || argPath.startsWith("../")) {
-        argPath = path.resolve(workspaceRoot, argPath);
-    }
-
-    // If still not absolute, treat it as relative to workspace root
-    if (!path.isAbsolute(argPath)) {
-        argPath = path.join(workspaceRoot, argPath);
-    }
-    return argPath;
-}
-
 // This method is called when your extension is activated.
 // Your extension is activated the very first time the command is executed.
-export function activate(context: vscode.ExtensionContext) {
+export async function activate(context: vscode.ExtensionContext) {
 
     // Create a diagnostic collection.
     const diagnosticCollection = vscode.languages.createDiagnosticCollection("Cppcheck");
@@ -98,17 +70,21 @@ export function activate(context: vscode.ExtensionContext) {
     // If an argument requires us to run any scripts we do it here
     const config = vscode.workspace.getConfiguration();
     const args = config.get<string>("cppcheck-official.arguments", "");
-    const argsWithScripts = args.split(" ").filter((arg) => arg.includes('§{'));
-    argsWithScripts.forEach(async (arg) => {
+    const argsWithScripts = args.split("--").filter((arg) => arg.includes('${'));
+    for (const arg of argsWithScripts) {
         // argType will look like e.g. --project
         const argType = arg.split("=")[0];
         const argValue = arg.split("=")[1];
         // Remove ${ from the beginning and slice } away from the end  of argValue
         const scriptCommand = argValue.split("{")[1].slice(0, - 1);
         const scriptOutput = await runScript(scriptCommand);
-        dynamicArgs.push(`${argType}=${scriptOutput}`);
-    });
-
+        console.log('scriptOutput', scriptOutput);
+        // We expect the script output that we are to set the argument to will be wrapped with ${}
+        const scriptOutputPath = scriptOutput.split("${")[1].split("}")[0];
+        dynamicArgs.push(`${argType}=${scriptOutputPath}`);
+        console.log('dynamic args', dynamicArgs);
+    };
+    
     // set up a map of timers per document URI for debounce for continuous analysis triggers
     // I.e. document has been changed -> DEBOUNCE_MS time passed since last change -> run cppcheck
     const debounceTimers: Map<string, NodeJS.Timeout> = new Map();
@@ -218,14 +194,14 @@ async function runCppcheckOnFileXML(
     const minSevNum = parseMinSeverity(minSevString);
 
     // Arguments specified with scripts are replaced with script output (dynamicArgs)
-    const staticArgs = extraArgs.split(" ").filter((arg) => !arg.includes("${"));
+    const staticArgs = extraArgs.split("--").filter((arg) => !arg.includes("${"));
     const allArgs = staticArgs.concat(dynamicArgs);
-    
+    console.log('all args', allArgs);
     // Resolve paths for arguments where applicable
     const extraArgsParsed = allArgs.map((arg) => {
-        if (arg.startsWith('--project')) {
+        if (arg.startsWith('project')) {
             const splitArg = arg.split('=');
-            return `${splitArg[0]}=${resolvePath(splitArg[1])}`;
+            return `--${splitArg[0]}=${resolvePath(splitArg[1])}`;
         }
         return arg;
     });

@@ -1,12 +1,16 @@
 import { execFile } from "child_process";
+import { resolvePath } from './path';
 
 function runScript(scriptCommand: string): Promise<string> {
-  const commandSplit = scriptCommand.split("  ");
+  const commandSplit = scriptCommand.split(" ");
   const scriptLang = commandSplit[0];
-  const scriptPath = commandSplit[1];
+  const scriptPath = resolvePath(commandSplit[1]);
+  console.log(`executing script ${scriptPath} with language ${scriptLang}`);
+  const workspaceFolder = resolvePath('${workspaceFolder}');
+  console.log('workspaceFolder', workspaceFolder);
   // Additional args could be added here, i.e. name of output file if applicable
   return new Promise((resolve, reject) => {
-    execFile(scriptLang, [scriptPath], (error, stdout, stderr) => {
+    execFile(scriptLang, [scriptPath], { cwd: workspaceFolder }, (error, stdout, stderr) => {
       if (error) {
         reject(error);
         return;
