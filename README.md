@@ -7,14 +7,13 @@
 - **On-save linting**: When you save a c/cpp file, `cppcheck` is automatically run on that file.
 - **Per-file diagnostics**: Only diagnostics relevant to the saved file are displayed.
 - **Configurable severity threshold**: Filter out messages below a chosen severity level (`info`, `warning`, or `error`).
-- **Set C/C++ standard**: Easily specify `--std=<id>` (e.g. `c++17`, `c99`, etc.).
 - **Diagnostic cleanup**: When you close a file, its diagnostics are automatically cleared.
 - **Project file support**: You can feed your project file to cppcheck through the `--project` flag in the `cppcheck-official.arguments` field in the extension settings.
 - **Warning notes**: Display notes for warnings when those are available
-
+- **Dynamic config**: The extension can run scripts that outputs arguments to be used. The extension expects the script to output the value to set the argument to wrapped with \${}, so e.g. with the argument `--project=${path/to/script.sh}` the script will be run and expected to create a compile_commands.json file whose path will be output as such: `${path/to/compile_commands.json}`.
 ## Requirements
 
- **Cppcheck** must be installed on your system.  
+ **Cppcheck** must be installed on your system.   
   - By default, this extension looks for `cppcheck` on the system PATH.
   - Alternatively, specify a custom executable path using the `cppcheck-official.path` setting.
 

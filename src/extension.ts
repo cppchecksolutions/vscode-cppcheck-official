@@ -76,7 +76,7 @@ export async function activate(context: vscode.ExtensionContext) {
         const argType = arg.split("=")[0];
         const argValue = arg.split("=")[1];
         // Remove ${ from the beginning and slice } away from the end  of argValue
-        const scriptCommand = argValue.split("{")[1].slice(0, - 1);
+        const scriptCommand = argValue.split("{")[1].split("}")[0];
         const scriptOutput = await runScript(scriptCommand);
         console.log('scriptOutput', scriptOutput);
         // We expect the script output that we are to set the argument to will be wrapped with ${}
@@ -196,7 +196,6 @@ async function runCppcheckOnFileXML(
     // Arguments specified with scripts are replaced with script output (dynamicArgs)
     const staticArgs = extraArgs.split("--").filter((arg) => !arg.includes("${"));
     const allArgs = staticArgs.concat(dynamicArgs);
-    console.log('all args', allArgs);
     // Resolve paths for arguments where applicable
     const extraArgsParsed = allArgs.map((arg) => {
         if (arg.startsWith('project')) {
