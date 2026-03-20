@@ -78,11 +78,9 @@ export async function activate(context: vscode.ExtensionContext) {
         // Remove ${ from the beginning and slice } away from the end  of argValue
         const scriptCommand = argValue.split("{")[1].split("}")[0];
         const scriptOutput = await runScript(scriptCommand);
-        console.log('scriptOutput', scriptOutput);
         // We expect the script output that we are to set the argument to will be wrapped with ${}
         const scriptOutputPath = scriptOutput.split("${")[1].split("}")[0];
         dynamicArgs.push(`${argType}=${scriptOutputPath}`);
-        console.log('dynamic args', dynamicArgs);
     };
     
     // set up a map of timers per document URI for debounce for continuous analysis triggers
