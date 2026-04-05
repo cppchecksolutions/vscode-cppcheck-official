@@ -1,11 +1,15 @@
 import { execFile } from "child_process";
 import { resolvePath } from './path';
 
-function runScript(scriptPath: string): Promise<string> {
+function runScript(scriptCommand: string): Promise<string> {
+  const scriptParts : string[] = scriptCommand.split(" ");
+  // ASSUMPTION: script path will be the last part of the command
+  const scriptPath = scriptParts[scriptParts.length -1];
   const absoluteScriptPath = resolvePath(scriptPath);
-  const workspaceFolder = resolvePath('${workspaceFolder}');
+  const joinedCommand = scriptParts.slice(0, scriptParts.length -1).join(" ") + " " + absoluteScriptPath;
+  console.log('joined command', joinedCommand);
   return new Promise((resolve, reject) => {
-    execFile(absoluteScriptPath, [], { cwd: workspaceFolder }, (error, stdout, stderr) => {
+    execFile(joinedCommand, [], { cwd: resolvePath('${workspaceFolder}') }, (error, stdout, stderr) => {
       if (error) {
         reject(error);
         return;

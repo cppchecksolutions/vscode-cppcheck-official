@@ -10,7 +10,7 @@
 - **Diagnostic cleanup**: When you close a file, its diagnostics are automatically cleared.
 - **Project file support**: You can feed your project file to cppcheck through the `--project` flag in the `cppcheck-official.arguments` field in the extension settings.
 - **Warning notes**: Display notes for warnings when those are available
-- **Dynamic config**: The extension can run scripts that outputs arguments to be used. This can be done by wrapping the argument with \${}, then specifying the language to run the script with as well as the path to the script, e.g. `--project=${bash path/to/script.sh}`. The extension expects the script to output the value to set the argument to wrapped with \${}, so with the argument `--project=${bash path/to/script.sh}` the script will be run and expected to create a compile_commands.json file whose path will be output as such: `${path/to/compile_commands.json}`.
+- **Dynamic config**: The extension supports runing scripts to generate arguments to pass to cppcheck. This can be done by setting the argument to command to run wrapped with \${}, e.g. `--project=${bash path/to/script.sh}`. The script is expected to output the argument wrapped with \${}, so with the argument `--project=${bash path/to/script.sh}` the script will be run and expected to create a compile_commands.json file whose path will be printed out as such: `${path/to/compile_commands.json}`.
 ## Requirements
 
  **Cppcheck** must be installed on your system.   
