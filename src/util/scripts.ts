@@ -7,7 +7,6 @@ function runScript(scriptCommand: string): Promise<string> {
   const scriptPath = scriptParts[scriptParts.length -1];
   const absoluteScriptPath = resolvePath(scriptPath);
   const joinedCommand = scriptParts.slice(0, scriptParts.length -1).join(" ") + " " + absoluteScriptPath;
-  console.log('joined command', joinedCommand);
   return new Promise((resolve, reject) => {
     execFile(joinedCommand, [], { cwd: resolvePath('${workspaceFolder}') }, (error, stdout, stderr) => {
       if (error) {
