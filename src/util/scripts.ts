@@ -1,26 +1,22 @@
-import { execFile } from "child_process";
+import { exec } from "child_process";
 import { resolvePath } from './path';
+import util from 'util';
 
-function runScript(scriptCommand: string): Promise<string> {
-  const scriptParts : string[] = scriptCommand.split(" ");
-  // ASSUMPTION: script path will be the last part of the command
-  const scriptPath = scriptParts[scriptParts.length -1];
-  const absoluteScriptPath = resolvePath(scriptPath);
-  const joinedCommand = scriptParts.slice(0, scriptParts.length -1).join(" ") + " " + absoluteScriptPath;
-  return new Promise((resolve, reject) => {
-    execFile(joinedCommand, [], { cwd: resolvePath('${workspaceFolder}') }, (error, stdout, stderr) => {
-      if (error) {
-        reject(error);
-        return;
-      }
-      if (stderr) {
-        console.warn("Script stderr:", stderr);
-      }
-      const result = stdout.trim();
-      resolve(result);
+const execAsync = util.promisify(exec);
+
+async function runCommand(command : string) {
+  try {
+    const { stdout, stderr } = await execAsync(command, {
+      cwd: resolvePath('${workspaceFolder}'),
     });
-  });
+
+    if (stderr) {
+      throw new Error(stderr);
+    }
+    return stdout;
+  } catch (error) {
+    throw error;
+  }
 }
 
-
-export { runScript };
+export { runScript, runCommand };

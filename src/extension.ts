@@ -3,7 +3,7 @@ import * as cp from 'child_process';
 import * as path from "path";
 import * as xml2js from 'xml2js';
 
-import { runScript } from './util/scripts';
+import { runCommand } from './util/scripts';
 import { resolvePath } from './util/path';
 
 enum SeverityNumber {
@@ -12,8 +12,8 @@ enum SeverityNumber {
     Error = 2
 }
 
-// If a script generates arguments at extension activation they are saved in dynamicArgs
-const dynamicArgs : Array<string> = [];
+// The arguments field may contain a script to evaluate on startup. The result of this evaluation is stored in this variable
+var processedArgs = '';
 
 const criticalWarningTypes = [
     'cppcheckError',
@@ -70,19 +70,16 @@ export async function activate(context: vscode.ExtensionContext) {
     // If an argument requires us to run any scripts we do it here
     const config = vscode.workspace.getConfiguration();
     const args = config.get<string>("cppcheck-official.arguments", "");
-    const argsWithScripts = args.split("--").filter((arg) => arg.includes('${'));
-    for (const arg of argsWithScripts) {
-        // argType will look like e.g. --project
-        const argType = arg.split("=")[0];
-        const argValue = arg.split("=")[1];
-        // Remove ${ from the beginning and slice } away from the end  of argValue
-        const scriptCommand = argValue.split("{")[1].split("}")[0];
-        const scriptOutput = await runScript(scriptCommand);
-        // We expect the script output that we are to set the argument to will be wrapped with ${}
-        const scriptOutputPath = scriptOutput.split("${")[1].split("}")[0];
-        dynamicArgs.push(`${argType}=${scriptOutputPath}`);
-    };
-    
+    if (args.includes('${')) {
+        const scriptCommand = args.split("${")[1].split("}")[0];
+        const scriptOutput = await runCommand(scriptCommand);
+        // We expect the script output that is to be used as arguments will be wrapped with ${}
+        const scriptOutputTrimmed = scriptOutput.split("${")[1].split("}")[0];
+        processedArgs = args.split("${")[0] + scriptOutputTrimmed + args.split("}")?.[1];
+    } else {
+        processedArgs = args;
+    }
+
     // set up a map of timers per document URI for debounce for continuous analysis triggers
     // I.e. document has been changed -> DEBOUNCE_MS time passed since last change -> run cppcheck
     const debounceTimers: Map<string, NodeJS.Timeout> = new Map();
@@ -105,7 +102,6 @@ export async function activate(context: vscode.ExtensionContext) {
 
         const config = vscode.workspace.getConfiguration();
         const isEnabled = config.get<boolean>("cppcheck-official.enable", true);
-        const extraArgs = config.get<string>("cppcheck-official.arguments", "");
         const minSevString = config.get<string>("cppcheck-official.minSeverity", "info");
         const userPath = config.get<string>("cppcheck-official.path")?.trim() || "";
         const commandPath = userPath ? resolvePath(userPath) : "cppcheck";
@@ -130,7 +126,6 @@ export async function activate(context: vscode.ExtensionContext) {
         await runCppcheckOnFileXML(
             document,
             commandPath,
-            extraArgs,
             minSevString,
             diagnosticCollection
         );
@@ -180,7 +175,6 @@ export async function activate(context: vscode.ExtensionContext) {
 async function runCppcheckOnFileXML(
     document: vscode.TextDocument,
     commandPath: string,
-    extraArgs: string,
     minSevString: string,
     diagnosticCollection: vscode.DiagnosticCollection
 ): Promise<void> {
@@ -191,20 +185,17 @@ async function runCppcheckOnFileXML(
     const filePath = document.fileName.replaceAll('\\', '/');
     const minSevNum = parseMinSeverity(minSevString);
 
-    // Arguments specified with scripts are replaced with script output (dynamicArgs)
-    const staticArgs = extraArgs.split("--").filter((arg) => !arg.includes("${"));
-    const allArgs = staticArgs.concat(dynamicArgs);
     // Resolve paths for arguments where applicable
-    const extraArgsParsed = allArgs.map((arg) => {
-        if (arg.startsWith('project')) {
+    const argsParsed = processedArgs.split(" ").map((arg) => {
+        if (arg.startsWith('--project')) {
             const splitArg = arg.split('=');
-            return `--${splitArg[0]}=${resolvePath(splitArg[1])}`;
+            return `${splitArg[0]}=${resolvePath(splitArg[1])}`;
         }
         return arg;
     });
 
     let proc;
-    if (extraArgs.includes("--project")) {
+    if (processedArgs.includes("--project")) {
         const args = [
             '--enable=all',
             '--inline-suppr',
@@ -213,7 +204,7 @@ async function runCppcheckOnFileXML(
             '--suppress=missingInclude',
             '--suppress=missingIncludeSystem',
             `--file-filter=${filePath}`,
-            ...extraArgsParsed,
+            ...argsParsed,
         ].filter(Boolean);
         proc = cp.spawn(commandPath, args, {
             cwd: path.dirname(document.fileName),
@@ -226,7 +217,7 @@ async function runCppcheckOnFileXML(
             '--suppress=unusedFunction',
             '--suppress=missingInclude',
             '--suppress=missingIncludeSystem',
-            ...extraArgsParsed,
+            ...argsParsed,
             filePath,
         ].filter(Boolean);
         proc = cp.spawn(commandPath, args, {
