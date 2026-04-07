@@ -19,4 +19,4 @@ async function runCommand(command : string) {
   }
 }
 
-export { runScript, runCommand };
+export { runCommand };
