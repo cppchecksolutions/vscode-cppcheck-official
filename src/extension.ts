@@ -67,13 +67,13 @@ export async function activate(context: vscode.ExtensionContext) {
     const diagnosticCollection = vscode.languages.createDiagnosticCollection("Cppcheck");
     context.subscriptions.push(diagnosticCollection);
     
-    // If an argument requires us to run any scripts we do it here
+    // If an argument requires us to run a script we do it here
     const config = vscode.workspace.getConfiguration();
     const args = config.get<string>("cppcheck-official.arguments", "");
     if (args.includes('${')) {
         const scriptCommand = args.split("${")[1].split("}")[0];
         const scriptOutput = await runCommand(scriptCommand);
-        // We expect the script output that is to be used as arguments will be wrapped with ${}
+        // We expect that the script output that is to be used as arguments will be wrapped with ${}
         const scriptOutputTrimmed = scriptOutput.split("${")[1].split("}")[0];
         processedArgs = args.split("${")[0] + scriptOutputTrimmed + args.split("}")?.[1];
     } else {
