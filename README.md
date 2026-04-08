@@ -13,7 +13,7 @@
 - **Dynamic config**: The extension supports running a script to generate arguments to pass to cppcheck. This can be done by including the command in the argument field wrapped with \${}, e.g. `--suppress=memleak:src/file1.cpp ${bash path/to/script.sh}`. The script is expected to output the argument(s) wrapped with \${}. If the script e.g. creates a project file it should print out as `${--project=path/to/projectfile.json}`. This output will be spliced into the argument string as such: `--suppress=memleak:src/file1.cpp --project=path/to/projectfile.json`.
 ## Requirements
 
- **Cppcheck** must be installed on your system.   
+ **Cppcheck** must be installed on your system.
   - By default, this extension looks for `cppcheck` on the system PATH.
   - Alternatively, specify a custom executable path using the `cppcheck-official.path` setting.
 
