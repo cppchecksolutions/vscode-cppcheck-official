@@ -12,9 +12,6 @@ enum SeverityNumber {
     Error = 2
 }
 
-// The arguments field may contain a script to evaluate on startup. The result of this evaluation is stored in this variable
-var processedArgs = '';
-
 const criticalWarningTypes = [
     'cppcheckError',
     'cppcheckLimit',
@@ -66,19 +63,6 @@ export async function activate(context: vscode.ExtensionContext) {
     // Create a diagnostic collection.
     const diagnosticCollection = vscode.languages.createDiagnosticCollection("Cppcheck");
     context.subscriptions.push(diagnosticCollection);
-    
-    // If an argument requires us to run a script we do it here
-    const config = vscode.workspace.getConfiguration();
-    const args = config.get<string>("cppcheck-official.arguments", "");
-    if (args.includes('${')) {
-        const scriptCommand = args.split("${")[1].split("}")[0];
-        const scriptOutput = await runCommand(scriptCommand);
-        // We expect that the script output that is to be used as arguments will be wrapped with ${}
-        const scriptOutputTrimmed = scriptOutput.split("${")[1].split("}")[0];
-        processedArgs = args.split("${")[0] + scriptOutputTrimmed + args.split("}")?.[1];
-    } else {
-        processedArgs = args;
-    }
 
     // set up a map of timers per document URI for debounce for continuous analysis triggers
     // I.e. document has been changed -> DEBOUNCE_MS time passed since last change -> run cppcheck
@@ -106,6 +90,19 @@ export async function activate(context: vscode.ExtensionContext) {
         const userPath = config.get<string>("cppcheck-official.path")?.trim() || "";
         const commandPath = userPath ? resolvePath(userPath) : "cppcheck";
 
+        var  args = config.get<string>("cppcheck-official.arguments", "");
+        var processedArgs = '';
+        // If argument field contains command to run script we do so here
+        if (args.includes('${')) {
+            const scriptCommand = args.split("${")[1].split("}")[0];
+            const scriptOutput = await runCommand(scriptCommand);
+            // We expect that the script output that is to be used as arguments will be wrapped with ${}
+            const scriptOutputTrimmed = scriptOutput.split("${")[1].split("}")[0];
+            processedArgs = args.split("${")[0] + scriptOutputTrimmed + args.split("}")?.[1];
+        } else {
+            processedArgs = args;
+        }
+
         // If disabled, clear any existing diagnostics for this doc.
         if (!isEnabled) {
             diagnosticCollection.delete(document.uri);
@@ -126,6 +123,7 @@ export async function activate(context: vscode.ExtensionContext) {
         await runCppcheckOnFileXML(
             document,
             commandPath,
+            processedArgs,
             minSevString,
             diagnosticCollection
         );
@@ -175,6 +173,7 @@ export async function activate(context: vscode.ExtensionContext) {
 async function runCppcheckOnFileXML(
     document: vscode.TextDocument,
     commandPath: string,
+    processedArgs: string,
     minSevString: string,
     diagnosticCollection: vscode.DiagnosticCollection
 ): Promise<void> {
