@@ -14,12 +14,12 @@
 - **Project file support**: You can feed your project file to cppcheck through the `--project` flag in the `cppcheck-official.arguments` field in the extension settings. (See GIF below)
 ![GIF showing where to set up project file](./images/project_file.gif)
 - **Warning notes**: Display notes for warnings when those are available
-- **Warning type suppression**: Suppress warnings with comments on the form `// cppcheck suppress >warning type<`. Cppcheck also warns about unmatched suppressions. 
-![GIF showing how to suppress warnings](./images/suppression.gif)
+- **Dynamic config**: The extension supports running a script to generate arguments to pass to cppcheck. This can be done by including the command in the argument field wrapped with \${}, e.g. `--suppress=memleak:src/file1.cpp ${bash path/to/script.sh}`. The script is expected to output the argument(s) wrapped with \${}. If the script e.g. creates a project file it should print out as `${--project=path/to/projectfile.json}`. This output will be spliced into the argument string as such: `--suppress=memleak:src/file1.cpp --project=path/to/projectfile.json`.
 
+![GIF showing how to suppress warnings](./images/suppression.gif)
 ## Requirements
 
- **Cppcheck** must be installed on your system.  
+ **Cppcheck** must be installed on your system.
   - By default, this extension looks for `cppcheck` on the system PATH.
   - Alternatively, specify a custom executable path using the `cppcheck-official.path` setting.
 

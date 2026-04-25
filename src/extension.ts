@@ -1,8 +1,10 @@
 import * as vscode from 'vscode';
 import * as cp from 'child_process';
 import * as path from "path";
-import * as os from "os";
 import * as xml2js from 'xml2js';
+
+import { runCommand } from './util/scripts';
+import { resolvePath } from './util/path';
 
 enum SeverityNumber {
     Info = 0,
@@ -54,42 +56,14 @@ function parseMinSeverity(str: string): SeverityNumber {
     }
 }
 
-export function resolvePath(argPath: string): string {
-    const folders = vscode.workspace.workspaceFolders;
-    const workspaceRoot = folders && folders.length > 0
-        ? folders[0].uri.fsPath
-        : process.cwd();
-
-    // Expand ${workspaceFolder}
-    if (argPath.includes("${workspaceFolder}")) {
-        argPath = argPath.replace("${workspaceFolder}", workspaceRoot);
-    }
-
-    // Expand tilde (~) to home directory
-    if (argPath.startsWith("~")) {
-        argPath = path.join(os.homedir(), argPath.slice(1));
-    }
-
-    // Expand ./ or ../ relative paths (relative to workspace root if available)
-    if (argPath.startsWith("./") || argPath.startsWith("../")) {
-        argPath = path.resolve(workspaceRoot, argPath);
-    }
-
-    // If still not absolute, treat it as relative to workspace root
-    if (!path.isAbsolute(argPath)) {
-        argPath = path.join(workspaceRoot, argPath);
-    }
-    return argPath;
-}
-
 // This method is called when your extension is activated.
 // Your extension is activated the very first time the command is executed.
-export function activate(context: vscode.ExtensionContext) {
+export async function activate(context: vscode.ExtensionContext) {
 
     // Create a diagnostic collection.
     const diagnosticCollection = vscode.languages.createDiagnosticCollection("Cppcheck");
     context.subscriptions.push(diagnosticCollection);
-    
+
     // set up a map of timers per document URI for debounce for continuous analysis triggers
     // I.e. document has been changed -> DEBOUNCE_MS time passed since last change -> run cppcheck
     const debounceTimers: Map<string, NodeJS.Timeout> = new Map();
@@ -112,10 +86,22 @@ export function activate(context: vscode.ExtensionContext) {
 
         const config = vscode.workspace.getConfiguration();
         const isEnabled = config.get<boolean>("cppcheck-official.enable", true);
-        const extraArgs = config.get<string>("cppcheck-official.arguments", "");
         const minSevString = config.get<string>("cppcheck-official.minSeverity", "info");
         const userPath = config.get<string>("cppcheck-official.path")?.trim() || "";
         const commandPath = userPath ? resolvePath(userPath) : "cppcheck";
+
+        var  args = config.get<string>("cppcheck-official.arguments", "");
+        var processedArgs = '';
+        // If argument field contains command to run script we do so here
+        if (args.includes('${')) {
+            const scriptCommand = args.split("${")[1].split("}")[0];
+            const scriptOutput = await runCommand(scriptCommand);
+            // We expect that the script output that is to be used as arguments will be wrapped with ${}
+            const scriptOutputTrimmed = scriptOutput.split("${")[1].split("}")[0];
+            processedArgs = args.split("${")[0] + scriptOutputTrimmed + args.split("}")?.[1];
+        } else {
+            processedArgs = args;
+        }
 
         // If disabled, clear any existing diagnostics for this doc.
         if (!isEnabled) {
@@ -137,7 +123,7 @@ export function activate(context: vscode.ExtensionContext) {
         await runCppcheckOnFileXML(
             document,
             commandPath,
-            extraArgs,
+            processedArgs,
             minSevString,
             diagnosticCollection
         );
@@ -187,7 +173,7 @@ export function activate(context: vscode.ExtensionContext) {
 async function runCppcheckOnFileXML(
     document: vscode.TextDocument,
     commandPath: string,
-    extraArgs: string,
+    processedArgs: string,
     minSevString: string,
     diagnosticCollection: vscode.DiagnosticCollection
 ): Promise<void> {
@@ -199,7 +185,7 @@ async function runCppcheckOnFileXML(
     const minSevNum = parseMinSeverity(minSevString);
 
     // Resolve paths for arguments where applicable
-    const extraArgsParsed = (extraArgs.split(" ")).map((arg) => {
+    const argsParsed = processedArgs.split(" ").map((arg) => {
         if (arg.startsWith('--project')) {
             const splitArg = arg.split('=');
             return `${splitArg[0]}=${resolvePath(splitArg[1])}`;
@@ -208,7 +194,7 @@ async function runCppcheckOnFileXML(
     });
 
     let proc;
-    if (extraArgs.includes("--project")) {
+    if (processedArgs.includes("--project")) {
         const args = [
             '--enable=all',
             '--inline-suppr',
@@ -217,7 +203,7 @@ async function runCppcheckOnFileXML(
             '--suppress=missingInclude',
             '--suppress=missingIncludeSystem',
             `--file-filter=${filePath}`,
-            ...extraArgsParsed,
+            ...argsParsed,
         ].filter(Boolean);
         proc = cp.spawn(commandPath, args, {
             cwd: path.dirname(document.fileName),
@@ -230,7 +216,7 @@ async function runCppcheckOnFileXML(
             '--suppress=unusedFunction',
             '--suppress=missingInclude',
             '--suppress=missingIncludeSystem',
-            ...extraArgsParsed,
+            ...argsParsed,
             filePath,
         ].filter(Boolean);
         proc = cp.spawn(commandPath, args, {
