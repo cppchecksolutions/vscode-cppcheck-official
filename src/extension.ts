@@ -199,9 +199,9 @@ async function runCppcheckOnFileXML(
             '--enable=all',
             '--inline-suppr',
             '--xml',
-            // '--suppress=unusedFunction',
-            // '--suppress=missingInclude',
-            // '--suppress=missingIncludeSystem',
+            '--suppress=unusedFunction',
+            '--suppress=missingInclude',
+            '--suppress=missingIncludeSystem',
             `--file-filter=${filePath}`,
             ...argsParsed,
         ].filter(Boolean);
@@ -219,7 +219,7 @@ async function runCppcheckOnFileXML(
             ...argsParsed,
             filePath,
         ].filter(Boolean);
-        
+
         const cwd = findWorkspaceRoot();
         proc = cp.spawn(commandPath, args, {
             cwd,
