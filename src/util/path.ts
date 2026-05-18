@@ -2,11 +2,16 @@ import * as path from "path";
 import * as os from "os";
 import * as vscode from 'vscode';
 
-export function resolvePath(argPath: string): string {
+export function findWorkspaceRoot(): string {
     const folders = vscode.workspace.workspaceFolders;
     const workspaceRoot = folders && folders.length > 0
         ? folders[0].uri.fsPath
         : process.cwd();
+    return workspaceRoot;
+}
+
+export function resolvePath(argPath: string): string {
+    const workspaceRoot = findWorkspaceRoot();
 
     // Expand ${workspaceFolder}
     if (argPath.includes("${workspaceFolder}")) {

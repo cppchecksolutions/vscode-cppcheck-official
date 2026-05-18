@@ -4,7 +4,7 @@ import * as path from "path";
 import * as xml2js from 'xml2js';
 
 import { runCommand } from './util/scripts';
-import { resolvePath } from './util/path';
+import { resolvePath, findWorkspaceRoot } from './util/path';
 
 enum SeverityNumber {
     Info = 0,
@@ -219,8 +219,10 @@ async function runCppcheckOnFileXML(
             ...argsParsed,
             filePath,
         ].filter(Boolean);
+
+        const cwd = findWorkspaceRoot();
         proc = cp.spawn(commandPath, args, {
-            cwd: path.dirname(document.fileName),
+            cwd,
         });
     }
 
