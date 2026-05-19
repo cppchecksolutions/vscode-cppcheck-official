@@ -91,6 +91,11 @@ export async function activate(context: vscode.ExtensionContext) {
         const commandPath = userPath ? resolvePath(userPath) : "cppcheck";
 
         var  args = config.get<string>("cppcheck-official.arguments", "");
+        // Expand ${workspaceFolder}, we have to do this here to disambiguate the ${} command syntax
+        if (args.includes("${workspaceFolder}")) {
+            args = args.replaceAll("${workspaceFolder}", findWorkspaceRoot());
+        }
+    
         var processedArgs = '';
         // If argument field contains command to run script we do so here
         if (args.includes('${')) {
