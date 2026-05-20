@@ -3,6 +3,7 @@ import * as cp from 'child_process';
 import * as path from "path";
 import * as xml2js from 'xml2js';
 
+import { documentationLinkMap } from './util/documentation';
 import { runCommand } from './util/scripts';
 import { resolvePath, findWorkspaceRoot } from './util/path';
 
@@ -294,7 +295,11 @@ async function runCppcheckOnFileXML(
                 const range = new vscode.Range(line, col, line, document.lineAt(line).text.length);
                 const diagnostic = new vscode.Diagnostic(range, e.$.msg, severity);
                 diagnostic.source = "cppcheck";
-                diagnostic.code = e.$.id;
+                // If we have a link to documentation, include it
+                diagnostic.code = documentationLinkMap[e.$.id] ? {
+                    value: e.$.id,
+                    target: vscode.Uri.parse(documentationLinkMap[e.$.id])
+                } : e.$.id;
 
                 // Related Information
                 const relatedInfos: vscode.DiagnosticRelatedInformation[] = [];
