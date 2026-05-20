@@ -96,12 +96,9 @@ export async function activate(context: vscode.ExtensionContext) {
         // If argument field contains command to run script we do so here
         if (args.includes('@(')) {
             const scriptCommand = args.split("@(")[1].split(")")[0];
-            console.log('script command ', scriptCommand);
             const scriptOutput = await runCommand(scriptCommand);
             // We expect that the script output that is to be used as arguments will be wrapped with ${}
-            console.log('output', scriptOutput);
             const scriptOutputTrimmed = scriptOutput.split("@(")[1].split(")")[0];
-            console.log('output trimmed', scriptOutputTrimmed);
             processedArgs = args.split("@(")[0] + scriptOutputTrimmed + args.split(")")?.[1];
         } else {
             processedArgs = args;
