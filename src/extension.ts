@@ -94,12 +94,12 @@ export async function activate(context: vscode.ExtensionContext) {
         var  args = config.get<string>("cppcheck-official.arguments", "");
         var processedArgs = '';
         // If argument field contains command to run script we do so here
-        if (args.includes('${')) {
-            const scriptCommand = args.split("${")[1].split("}")[0];
+        if (args.includes('@(')) {
+            const scriptCommand = args.split("@(")[1].split(")")[0];
             const scriptOutput = await runCommand(scriptCommand);
             // We expect that the script output that is to be used as arguments will be wrapped with ${}
-            const scriptOutputTrimmed = scriptOutput.split("${")[1].split("}")[0];
-            processedArgs = args.split("${")[0] + scriptOutputTrimmed + args.split("}")?.[1];
+            const scriptOutputTrimmed = scriptOutput.split("@(")[1].split(")")[0];
+            processedArgs = args.split("@(")[0] + scriptOutputTrimmed + args.split(")")?.[1];
         } else {
             processedArgs = args;
         }
