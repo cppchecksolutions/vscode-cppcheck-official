@@ -3,8 +3,9 @@ import * as cp from 'child_process';
 import * as path from "path";
 import * as xml2js from 'xml2js';
 
+import { documentationLinkMap } from './util/documentation';
 import { runCommand } from './util/scripts';
-import { resolvePath } from './util/path';
+import { resolvePath, findWorkspaceRoot } from './util/path';
 
 enum SeverityNumber {
     Info = 0,
@@ -93,12 +94,12 @@ export async function activate(context: vscode.ExtensionContext) {
         var  args = config.get<string>("cppcheck-official.arguments", "");
         var processedArgs = '';
         // If argument field contains command to run script we do so here
-        if (args.includes('${')) {
-            const scriptCommand = args.split("${")[1].split("}")[0];
+        if (args.includes('@(')) {
+            const scriptCommand = args.split("@(")[1].split(")")[0];
             const scriptOutput = await runCommand(scriptCommand);
             // We expect that the script output that is to be used as arguments will be wrapped with ${}
-            const scriptOutputTrimmed = scriptOutput.split("${")[1].split("}")[0];
-            processedArgs = args.split("${")[0] + scriptOutputTrimmed + args.split("}")?.[1];
+            const scriptOutputTrimmed = scriptOutput.split("@(")[1].split(")")[0];
+            processedArgs = args.split("@(")[0] + scriptOutputTrimmed + args.split(")")?.[1];
         } else {
             processedArgs = args;
         }
@@ -219,8 +220,10 @@ async function runCppcheckOnFileXML(
             ...argsParsed,
             filePath,
         ].filter(Boolean);
+
+        const cwd = findWorkspaceRoot();
         proc = cp.spawn(commandPath, args, {
-            cwd: path.dirname(document.fileName),
+            cwd,
         });
     }
 
@@ -292,7 +295,11 @@ async function runCppcheckOnFileXML(
                 const range = new vscode.Range(line, col, line, document.lineAt(line).text.length);
                 const diagnostic = new vscode.Diagnostic(range, e.$.msg, severity);
                 diagnostic.source = "cppcheck";
-                diagnostic.code = e.$.id;
+                // If we have a link to documentation, include it
+                diagnostic.code = documentationLinkMap[e.$.id] ? {
+                    value: e.$.id,
+                    target: vscode.Uri.parse(documentationLinkMap[e.$.id])
+                } : e.$.id;
 
                 // Related Information
                 const relatedInfos: vscode.DiagnosticRelatedInformation[] = [];
