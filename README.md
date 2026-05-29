@@ -10,7 +10,7 @@
 - **Per-file diagnostics**: Only diagnostics relevant to the saved file are displayed.
 - **Configurable severity threshold**: Filter out messages below a chosen severity level (`info`, `warning`, or `error`).
 - **Diagnostic cleanup**: When you close a file, its diagnostics are automatically cleared.
-- **Project file support**: You can feed your project file to cppcheck through the `--project` flag in the `cppcheck-official.arguments` field in the extension settings. (See GIF below)
+- **Project file support**: You can feed your project file to cppcheck through the `--project` flag in the `cppcheck-official.arguments` field in the extension settings. (See image below)
 
 ![Image showing where to set up project file](./images/project_file.png)
 - **Warning notes**: Display notes for warnings when those are available
