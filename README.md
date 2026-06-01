@@ -1,21 +1,30 @@
 # Cppcheck Official
 
+
 **Cppcheck Official** is a Visual Studio Code extension that runs [cppcheck](https://cppcheck.sourceforge.io/) against C/C++ files upon save and reports any warnings or errors in the Problems panel.
 
-## Features
+![Image showing example of problem tab with warnings output from cppcheck](./images/check_result2.png)
 
+## Features
 - **On-save linting**: When you save a c/cpp file, `cppcheck` is automatically run on that file.
 - **Per-file diagnostics**: Only diagnostics relevant to the saved file are displayed.
 - **Configurable severity threshold**: Filter out messages below a chosen severity level (`info`, `warning`, or `error`).
 - **Diagnostic cleanup**: When you close a file, its diagnostics are automatically cleared.
-- **Project file support**: You can feed your project file to cppcheck through the `--project` flag in the `cppcheck-official.arguments` field in the extension settings.
+- **Project file support**: You can feed your project file to cppcheck through the `--project` flag in the `cppcheck-official.arguments` field in the extension settings. (See image below)
+
+![Image showing where to set up project file](./images/project_file.png)
 - **Warning notes**: Display notes for warnings when those are available
 - **Dynamic config**: The extension supports running a script to generate arguments to pass to cppcheck. This can be done by including the command in the argument field wrapped with \@(), e.g. `--suppress=memleak:src/file1.cpp @(bash path/to/script.sh)`. The script is expected to output the argument(s) wrapped with \@(). If the script e.g. creates a project file it should print out as `@(--project=path/to/projectfile.json)`. This output will be spliced into the argument string as such: `--suppress=memleak:src/file1.cpp --project=path/to/projectfile.json`.
+
+- **Warning suppression**: Warnings of a specific type can be supressed with the --supress flag in the argument field in the extension settings. The extension also supports inline suppression for specific lines of code, simply write `// cppcheck-supress >warning id<` (see image below).
+![Image showing how to suppress warnings](./images/suppression.png)
 ## Requirements
 
  **Cppcheck** must be installed on your system.
   - By default, this extension looks for `cppcheck` on the system PATH.
   - Alternatively, specify a custom executable path using the `cppcheck-official.path` setting.
+
+![Image showing location of path setting](./images/cppcheck_path.png)
 
 Examples of installing Cppcheck:
   - On Linux (Debian/Ubuntu), install via `sudo apt-get install cppcheck`.
