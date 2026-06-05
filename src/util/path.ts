@@ -2,6 +2,13 @@ import * as path from "path";
 import * as os from "os";
 import * as vscode from 'vscode';
 
+export function isPath(arg: string): boolean {
+    if (arg.includes('/') || arg.includes('\\')) {
+        return true;
+    }
+    return false;
+}
+
 export function findWorkspaceRoot(): string {
     const folders = vscode.workspace.workspaceFolders;
     const workspaceRoot = folders && folders.length > 0

@@ -5,7 +5,7 @@ import * as xml2js from 'xml2js';
 
 import { documentationLinkMap } from './util/documentation';
 import { runCommand } from './util/scripts';
-import { resolvePath, findWorkspaceRoot } from './util/path';
+import { isPath, resolvePath, findWorkspaceRoot } from './util/path';
 
 enum SeverityNumber {
     Info = 0,
@@ -187,8 +187,8 @@ async function runCppcheckOnFileXML(
 
     // Resolve paths for arguments where applicable
     const argsParsed = processedArgs.split(" ").map((arg) => {
-        if (arg.startsWith('--project')) {
-            const splitArg = arg.split('=');
+        const splitArg = arg.split('=');
+        if (isPath(splitArg[1])) {
             return `${splitArg[0]}=${resolvePath(splitArg[1])}`;
         }
         return arg;
