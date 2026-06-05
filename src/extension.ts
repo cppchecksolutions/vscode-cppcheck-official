@@ -5,7 +5,7 @@ import * as xml2js from 'xml2js';
 
 import { documentationLinkMap } from './util/documentation';
 import { runCommand } from './util/scripts';
-import { resolvePath, findWorkspaceRoot } from './util/path';
+import { looksLikePath, resolvePath, findWorkspaceRoot } from './util/path';
 
 enum SeverityNumber {
     Info = 0,
@@ -28,6 +28,14 @@ const criticalWarningTypes = [
     'syntaxError',
     'unhandledChar',
     'unknownMacro'
+];
+
+const pathVariableArgs = [
+    '--project',
+    '--addon',
+    '--suppressions-list',
+    '--include',
+    '--rule-file',
 ];
 
 function parseSeverity(str: string): vscode.DiagnosticSeverity {
@@ -187,7 +195,9 @@ async function runCppcheckOnFileXML(
 
     // Resolve paths for arguments where applicable
     const argsParsed = processedArgs.split(" ").map((arg) => {
-        if (arg.startsWith('--project')) {
+        const isPathArgument = pathVariableArgs.some(a => arg.startsWith(a));
+        // Some arguments such as addon may be either a path or the name of a built in addon
+        if (isPathArgument && looksLikePath(arg)) {
             const splitArg = arg.split('=');
             return `${splitArg[0]}=${resolvePath(splitArg[1])}`;
         }
