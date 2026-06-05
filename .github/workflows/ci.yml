@@ -38,7 +38,8 @@ jobs:
       - name: Run tests
         uses: coactions/setup-xvfb@v1
         with:
-          run: cd src && npm test
+          run: npm test
+          working-directory: src
 
   package:
     runs-on: ubuntu-latest
