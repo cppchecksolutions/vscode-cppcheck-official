@@ -195,9 +195,9 @@ async function runCppcheckOnFileXML(
 
     // Resolve paths for arguments where applicable
     const argsParsed = processedArgs.split(" ").map((arg) => {
-        if (pathVariableArgs.some((a) => { arg.startsWith(a);})
-            && looksLikePath(arg)
-        ) {
+        const isPathArgument = pathVariableArgs.some(a => arg.startsWith(a));
+        // Some arguments such as addon may be either a path or the name of a built in addon
+        if (isPathArgument && looksLikePath(arg)) {
             const splitArg = arg.split('=');
             return `${splitArg[0]}=${resolvePath(splitArg[1])}`;
         }
