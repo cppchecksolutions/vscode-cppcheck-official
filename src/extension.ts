@@ -205,37 +205,22 @@ async function runCppcheckOnFileXML(
     });
 
     let proc;
+    const args = [
+        '--enable=all',
+        '--inline-suppr',
+        '--xml',
+        '--suppress=unusedFunction',
+        '--suppress=missingInclude',
+        '--suppress=missingIncludeSystem',
+        ...argsParsed,
+    ].filter(Boolean);
     if (processedArgs.includes("--project")) {
-        const args = [
-            '--enable=all',
-            '--inline-suppr',
-            '--xml',
-            '--suppress=unusedFunction',
-            '--suppress=missingInclude',
-            '--suppress=missingIncludeSystem',
-            `--file-filter=${filePath}`,
-            ...argsParsed,
-        ].filter(Boolean);
-        proc = cp.spawn(commandPath, args, {
-            cwd: path.dirname(document.fileName),
-        });
-    } else {
-        const args = [
-            '--enable=all',
-            '--inline-suppr',
-            '--xml',
-            '--suppress=unusedFunction',
-            '--suppress=missingInclude',
-            '--suppress=missingIncludeSystem',
-            ...argsParsed,
-            filePath,
-        ].filter(Boolean);
-
-        const cwd = findWorkspaceRoot();
-        proc = cp.spawn(commandPath, args, {
-            cwd,
-        });
+        args.push(`--file-filter=${filePath}`);
     }
+    const cwd = findWorkspaceRoot();
+    proc = cp.spawn(commandPath, args, {
+        cwd,
+    });
 
     // if spawn fails (e.g. ENOENT or permission denied)
     proc.on("error", (err) => {
