@@ -1,6 +1,5 @@
 import * as vscode from 'vscode';
 import * as cp from 'child_process';
-import * as path from "path";
 import * as xml2js from 'xml2js';
 
 import { documentationLinkMap } from './util/documentation';
@@ -100,6 +99,11 @@ export async function activate(context: vscode.ExtensionContext) {
         const commandPath = userPath ? resolvePath(userPath) : "cppcheck";
 
         var  args = config.get<string>("cppcheck-official.arguments", "");
+        // If user enter arguments as array we parse them into space separated string format
+        if (args.startsWith("[") && args.endsWith("]")) {
+            args = args.replaceAll("[", "").replaceAll("]", "").replaceAll(",", " ");
+        }
+        
         var processedArgs = '';
         // If argument field contains command to run script we do so here
         if (args.includes('@(')) {
@@ -195,47 +199,35 @@ async function runCppcheckOnFileXML(
 
     // Resolve paths for arguments where applicable
     const argsParsed = processedArgs.split(" ").map((arg) => {
-        const isPathArgument = pathVariableArgs.some(a => arg.startsWith(a));
+        let cleanedArg = arg.replaceAll("\"","");
+        const isPathArgument = pathVariableArgs.some(a => cleanedArg.startsWith(a));
         // Some arguments such as addon may be either a path or the name of a built in addon
-        if (isPathArgument && looksLikePath(arg)) {
-            const splitArg = arg.split('=');
+        if (isPathArgument && looksLikePath(cleanedArg)) {
+            const splitArg = cleanedArg.split('=');
             return `${splitArg[0]}=${resolvePath(splitArg[1])}`;
         }
         return arg;
     });
 
     let proc;
+    const args = [
+        '--enable=all',
+        '--inline-suppr',
+        '--xml',
+        '--suppress=unusedFunction',
+        '--suppress=missingInclude',
+        '--suppress=missingIncludeSystem',
+        ...argsParsed,
+    ].filter(Boolean);
     if (processedArgs.includes("--project")) {
-        const args = [
-            '--enable=all',
-            '--inline-suppr',
-            '--xml',
-            '--suppress=unusedFunction',
-            '--suppress=missingInclude',
-            '--suppress=missingIncludeSystem',
-            `--file-filter=${filePath}`,
-            ...argsParsed,
-        ].filter(Boolean);
-        proc = cp.spawn(commandPath, args, {
-            cwd: path.dirname(document.fileName),
-        });
+        args.push(`--file-filter=${filePath}`);
     } else {
-        const args = [
-            '--enable=all',
-            '--inline-suppr',
-            '--xml',
-            '--suppress=unusedFunction',
-            '--suppress=missingInclude',
-            '--suppress=missingIncludeSystem',
-            ...argsParsed,
-            filePath,
-        ].filter(Boolean);
-
-        const cwd = findWorkspaceRoot();
-        proc = cp.spawn(commandPath, args, {
-            cwd,
-        });
+        args.push(filePath);
     }
+    const cwd = findWorkspaceRoot();
+    proc = cp.spawn(commandPath, args, {
+        cwd,
+    });
 
     // if spawn fails (e.g. ENOENT or permission denied)
     proc.on("error", (err) => {
