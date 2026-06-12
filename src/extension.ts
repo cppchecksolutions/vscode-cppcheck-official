@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import * as cp from 'child_process';
 import * as xml2js from 'xml2js';
 
-import { documentationLinkMap } from './util/documentation';
+import { documentationLinkMap, getPremiumCertLink } from './util/documentation';
 import { runCommand } from './util/scripts';
 import { looksLikePath, resolvePath, findWorkspaceRoot } from './util/path';
 
@@ -225,6 +225,7 @@ async function runCppcheckOnFileXML(
         args.push(filePath);
     }
     const cwd = findWorkspaceRoot();
+    console.log('args', args);
     proc = cp.spawn(commandPath, args, {
         cwd,
     });
@@ -301,6 +302,9 @@ async function runCppcheckOnFileXML(
                 diagnostic.code = documentationLinkMap[e.$.id] ? {
                     value: e.$.id,
                     target: vscode.Uri.parse(documentationLinkMap[e.$.id])
+                } : getPremiumCertLink(e.$.id) ? {
+                    value: e.$.id,
+                    target: vscode.Uri.parse(getPremiumCertLink(e.$.id))
                 } : e.$.id;
 
                 // Related Information
