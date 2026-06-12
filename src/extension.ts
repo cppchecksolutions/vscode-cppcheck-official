@@ -225,7 +225,6 @@ async function runCppcheckOnFileXML(
         args.push(filePath);
     }
     const cwd = findWorkspaceRoot();
-    console.log('args', args);
     proc = cp.spawn(commandPath, args, {
         cwd,
     });
