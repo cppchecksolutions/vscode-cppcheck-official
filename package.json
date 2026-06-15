@@ -82,31 +82,28 @@
           {
             "id": "step1",
             "title": "Connect extension to your cppcheck executable",
-            "description": "Open the extension settings. Set the path to your cppcheck executable in the `path` property. \n[Set path](command:workbench.action.openSettings?%5B%22cppcheck-official.path%22%5D)",
+            "description": "",
             "media": {
-              "image": "images/cppcheck_path.png",
-              "altText": "image showing where to find the cppcheck path property"
+              "markdown": "walkthrough/path.md"
             },
             "completionEvents": ["onSettingChanged:cppcheck-official.path"]
           },
           {
             "id": "step2",
-            "title": "Try out the extension",
-            "description": "Open a .c or .cpp file and save it. If cppcheck detects any issues these will show up in the problems tab in the bottom of your VS Code window.",
+            "title": "Customize settings",
+            "description": "",
             "media": {
-              "image": "images/check_result2.png",
-              "altText": "image showing project file path being set in arguments property"
+              "markdown": "walkthrough/arguments.md"
             }
           },
           {
             "id": "step3",
-            "title": "Customize settings",
-            "description": "Cppcheck works best for you if you set it up according to your needs. You may i.e. want to disable certain kinds of warnings, and if you have cppcheck premium you will need to set this up for it to work in this extension. All of this is done through the extension property 'arguments', with the different flags or arguments available being detailed in the [official cppcheck documentation](https://files.cppchecksolutions.com/manual.pdf). \n[Set up arguments](command:workbench.action.openSettings?%5B%22cppcheck-official.arguments%22%5D)",
+            "title": "Try out the extension",
+            "description": "",
             "media": {
-              "image": "images/project_file.png",
-              "altText": "image showing cppcheck warnings in problems tab"
+              "markdown": "walkthrough/test.md"
             }
-          }
+          } 
         ]
       }
     ]
