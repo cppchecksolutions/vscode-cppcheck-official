@@ -95,7 +95,7 @@
             "description": "Open a .c or .cpp file and save it. If cppcheck detects any issues these will show up in the problems tab in the bottom of your VS Code window.",
             "media": {
               "image": "images/check_result2.png",
-              "altText": "image showing cppcheck warnings in problems tab"
+              "altText": "image showing project file path being set in arguments property"
             }
           },
           {
