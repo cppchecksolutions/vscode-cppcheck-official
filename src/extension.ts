@@ -68,6 +68,19 @@ function parseMinSeverity(str: string): SeverityNumber {
 // Your extension is activated the very first time the command is executed.
 export async function activate(context: vscode.ExtensionContext) {
 
+    // Register a command to push user to workspace settings from walkthrough
+    context.subscriptions.push(
+        vscode.commands.registerCommand(
+            'cppcheck-official.configureArguments',
+            async () => {
+                await vscode.commands.executeCommand(
+                    'workbench.action.openWorkspaceSettings',
+                    'cppcheck-official.arguments'
+                );
+            }
+        )
+    );
+
     // Create a diagnostic collection.
     const diagnosticCollection = vscode.languages.createDiagnosticCollection("Cppcheck");
     context.subscriptions.push(diagnosticCollection);

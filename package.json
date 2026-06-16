@@ -72,6 +72,40 @@
           }
         }
       }
+    ],
+    "walkthroughs": [
+      {
+        "id": "cppcheck-official.gettingStarted",
+        "title": "Get Started with Cppcheck",
+        "description": "Learn the basics of using cppcheck in VS Code with the official extension",
+        "steps": [
+          {
+            "id": "step1",
+            "title": "Connect extension to your cppcheck executable",
+            "description": "",
+            "media": {
+              "markdown": "walkthrough/path.md"
+            },
+            "completionEvents": ["onSettingChanged:cppcheck-official.path"]
+          },
+          {
+            "id": "step2",
+            "title": "Customize settings",
+            "description": "",
+            "media": {
+              "markdown": "walkthrough/arguments.md"
+            }
+          },
+          {
+            "id": "step3",
+            "title": "Try out the extension",
+            "description": "",
+            "media": {
+              "markdown": "walkthrough/test.md"
+            }
+          } 
+        ]
+      }
     ]
   },
   "scripts": {
