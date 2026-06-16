@@ -73,7 +73,6 @@ export async function activate(context: vscode.ExtensionContext) {
         vscode.commands.registerCommand(
             'cppcheck-official.configureArguments',
             async () => {
-                console.log('configure arguments');
                 await vscode.commands.executeCommand(
                     'workbench.action.openWorkspaceSettings',
                     'cppcheck-official.arguments'
