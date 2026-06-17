@@ -85,11 +85,6 @@ export async function activate(context: vscode.ExtensionContext) {
     const diagnosticCollection = vscode.languages.createDiagnosticCollection("Cppcheck");
     context.subscriptions.push(diagnosticCollection);
 
-    // set up a map of timers per document URI for debounce for continuous analysis triggers
-    // I.e. document has been changed -> DEBOUNCE_MS time passed since last change -> run cppcheck
-    const debounceTimers: Map<string, NodeJS.Timeout> = new Map();
-    const DEBOUNCE_MS = 1000;
-
     async function handleDocument(document: vscode.TextDocument) {
         // Only process C/C++ files.
         if (!["c", "cpp"].includes(document.languageId)) {
@@ -154,27 +149,6 @@ export async function activate(context: vscode.ExtensionContext) {
             diagnosticCollection
         );
     }
-
-    // TODO: Reimplement continuous analysis. Requires cppcheck update (expected in 2.20)
-    async function handleDocumentContinuous(e: vscode.TextDocumentChangeEvent) {
-        const document : vscode.TextDocument = e.document;
-        const uriKey = document.uri.toString();
-
-        // clear any existing timer for this document
-        if (debounceTimers.has(uriKey)) {
-            clearTimeout(debounceTimers.get(uriKey)!);
-        }
-
-        // schedule a new run
-        const timer = setTimeout(async () => {
-            debounceTimers.delete(uriKey);
-            await handleDocument(document);
-        }, DEBOUNCE_MS);
-        debounceTimers.set(uriKey, timer);
-    }
-
-    // Run cppcheck when document is changed, with debounce
-    // vscode.workspace.onDidChangeTextDocument(handleDocumentContinuous, null, context.subscriptions);
 
     // Listen for file saves.
     vscode.workspace.onDidSaveTextDocument(handleDocument, null, context.subscriptions);
