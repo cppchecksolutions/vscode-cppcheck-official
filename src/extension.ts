@@ -10,6 +10,9 @@ import { looksLikePath, resolvePath, findWorkspaceRoot } from './util/path';
 // To keep track of document changes we save hashed versions of their content to this record
 let documentHashMemory : Record<string, string> = {};
 
+let cppcheckProgressIndicator: vscode.StatusBarItem;
+let checksRunning = false;
+
 enum SeverityNumber {
     Info = 0,
     Warning = 1,
@@ -68,6 +71,15 @@ function parseMinSeverity(str: string): SeverityNumber {
     }
 }
 
+function updateProgressIndicator(): void {
+	if (checksRunning) {
+		cppcheckProgressIndicator.text = `$(loading~spin) Cppcheck Running ..`;
+		cppcheckProgressIndicator.show();
+	} else {
+		cppcheckProgressIndicator.hide();
+	}
+}
+
 function getDocumentSha1(document: vscode.TextDocument): string {
     return crypto
         .createHash('sha1')
@@ -91,6 +103,10 @@ export async function activate(context: vscode.ExtensionContext) {
             }
         )
     );
+
+    // ProgressIndicator status bar item to show when checks are running
+	cppcheckProgressIndicator = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 10);
+	context.subscriptions.push(cppcheckProgressIndicator);
 
     // Create a diagnostic collection.
     const diagnosticCollection = vscode.languages.createDiagnosticCollection("Cppcheck");
@@ -201,6 +217,9 @@ async function runCppcheckOnFileXML(
     minSevString: string,
     diagnosticCollection: vscode.DiagnosticCollection
 ): Promise<void> {
+    checksRunning = true;
+    updateProgressIndicator();
+
     // Clear existing diagnostics for this file
     diagnosticCollection.delete(document.uri);
 
@@ -350,6 +369,9 @@ async function runCppcheckOnFileXML(
             diagnosticCollection.set(document.uri, diagnostics);
         });
     });
+
+    checksRunning = false;
+    updateProgressIndicator();
 }
 
 // This method is called when your extension is deactivated
