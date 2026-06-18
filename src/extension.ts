@@ -172,6 +172,13 @@ export async function activate(context: vscode.ExtensionContext) {
     // Run cppcheck when a file is opened
     vscode.workspace.onDidOpenTextDocument(handleDocument, null, context.subscriptions);
 
+    // Run cppcheck when opening files in text editor
+    vscode.window.onDidChangeActiveTextEditor(editor => {
+        if (editor) {
+            handleDocument(editor.document);
+        }
+    }, null, context.subscriptions);
+
     // Run cppcheck for all open files when the workspace is opened
     vscode.workspace.onDidChangeWorkspaceFolders(() => {
         vscode.workspace.textDocuments.forEach(handleDocument);
