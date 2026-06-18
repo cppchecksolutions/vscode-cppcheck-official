@@ -123,7 +123,9 @@ export async function activate(context: vscode.ExtensionContext) {
             // Check file content against memory, if it has not changed since last check do early return
             const newHash = getDocumentSha1(document);
             const oldHash = documentHashMemory[document.fileName];
+            console.log('documentHashMemory keys', Object.keys(documentHashMemory).join(', '));
             if (newHash === oldHash) {
+                console.log('hash matched, skipping run', newHash);
                 return;
             }
         }
@@ -184,10 +186,6 @@ export async function activate(context: vscode.ExtensionContext) {
             minSevString,
             diagnosticCollection
         );
-
-        // Save hashed document content to memory
-        const hashedContentOfFile = getDocumentSha1(document);
-        documentHashMemory[document.fileName] = hashedContentOfFile;
     }
 
     // Listen for file saves.
@@ -368,6 +366,13 @@ async function runCppcheckOnFileXML(
             }
             diagnosticCollection.set(document.uri, diagnostics);
         });
+
+        // If checks have run without error, save hashed document content to memory
+        if (!code) {
+            const hashedContentOfFile = getDocumentSha1(document);
+            console.log('checks ran succesfully, saving hashed file', document.fileName, hashedContentOfFile);
+            documentHashMemory[document.fileName] = hashedContentOfFile;
+        }
     });
 
     checksRunning = false;
