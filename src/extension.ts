@@ -174,9 +174,25 @@ export async function activate(context: vscode.ExtensionContext) {
 
     // Run cppcheck when opening files in text editor
     vscode.window.onDidChangeActiveTextEditor(editor => {
-        if (editor) {
-            handleDocument(editor.document);
+        if (!editor) {
+            return;
         }
+        const tabs = vscode.window.tabGroups.all.flatMap(g => g.tabs);
+        const tab = tabs.find(t => {
+            return t.input instanceof vscode.TabInputText &&
+            t.input.uri.toString() === editor.document.uri.toString();
+        }
+        );
+        
+        if (!tab) {
+            return;
+        }
+        console.log('tab', tab, 'isPinned', tab.isPinned);
+        // Ignore preview tabs
+        if (!tab.isPinned) {
+            return;
+        }
+        handleDocument(editor.document);
     }, null, context.subscriptions);
 
     // Run cppcheck for all open files when the workspace is opened
