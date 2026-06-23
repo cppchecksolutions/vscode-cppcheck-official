@@ -272,7 +272,7 @@ async function runCppcheckOnFileXML(
         return arg;
     });
 
-    let proc;
+    let usingProjectFile = false;
     const args = [
         '--enable=all',
         '--inline-suppr',
@@ -283,10 +283,13 @@ async function runCppcheckOnFileXML(
         ...argsParsed,
     ].filter(Boolean);
     if (processedArgs.includes("--project")) {
+        usingProjectFile = true;
         args.push(`--file-filter=${filePath}`);
     } else {
         args.push(filePath);
     }
+
+    let proc;
     const cwd = findWorkspaceRoot();
     proc = cp.spawn(commandPath, args, {
         cwd,
@@ -312,14 +315,14 @@ async function runCppcheckOnFileXML(
             vscode.window.showErrorMessage(errorMessage);
         }
         const parser = new xml2js.Parser({ explicitArray: true });
-        parser.parseString(xmlOutput, (err, result) => {
+        parser.parseString(xmlOutput, async (err, result) => {
             if (err) {
                 console.error("XML parse error:", err);
                 return;
             }
 
             const errors = result.results?.errors?.[0]?.error || [];
-            const diagnostics: vscode.Diagnostic[] = [];
+            const diagnostics: Record<string, vscode.Diagnostic[]> = {};
 
             for (const e of errors) {
                 const isCriticalError = criticalWarningTypes.includes(e.$.id);
@@ -330,8 +333,8 @@ async function runCppcheckOnFileXML(
 
                 const mainLoc = locations[locations.length - 1].$;
                 
-                // If main location is not current file, then skip displaying warning unless it is critical
-                if (!isCriticalError && !filePath.endsWith(mainLoc.file)) {
+                // If main location is not current file, we are not using a project file and warning is not critical then skip displaying warning
+                if (!isCriticalError && usingProjectFile && !filePath.endsWith(mainLoc.file)) {
                     continue;
                 }
 
@@ -386,10 +389,10 @@ async function runCppcheckOnFileXML(
                         lLine, lCol,
                         lLine, document.lineAt(lLine).text.length
                     );
-
+                    const relatedDocument = await vscode.workspace.openTextDocument(loc.file);
                     relatedInfos.push(
                         new vscode.DiagnosticRelatedInformation(
-                            new vscode.Location(document.uri, relatedRange),
+                            new vscode.Location(relatedDocument?.uri ?? '', relatedRange),
                             msg
                         )
                     );
@@ -397,9 +400,25 @@ async function runCppcheckOnFileXML(
                 if (relatedInfos.length > 0) {
                     diagnostic.relatedInformation = relatedInfos;
                 }
-                diagnostics.push(diagnostic);
+                const diagnosticFile = mainLoc.file;
+                if (diagnosticFile === document.fileName) {
+                    const uri = document.uri.toString();
+                    if (diagnostics[uri] === null || diagnostics[uri] === undefined) {
+                        diagnostics[uri] = [];
+                    }
+                    diagnostics[uri].push(diagnostic);
+                } else {
+                    const relatedDocument = await vscode.workspace.openTextDocument(mainLoc.file);
+                    const uri = relatedDocument.uri.toString();
+                    if (diagnostics[uri] === null || diagnostics[uri] === undefined) {
+                        diagnostics[uri] = [];
+                    }
+                    diagnostics[uri].push(diagnostic);
+                }
             }
-            diagnosticCollection.set(document.uri, diagnostics);
+            for (const uri of Object.keys(diagnostics)) {
+                diagnosticCollection.set(vscode.Uri.parse(uri), diagnostics[uri]);
+            }
         });
 
         // If checks have run without error, save hashed document content to memory
