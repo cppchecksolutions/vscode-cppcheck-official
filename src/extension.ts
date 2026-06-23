@@ -238,7 +238,6 @@ export async function activate(context: vscode.ExtensionContext) {
     // Clean up diagnostics when a file is closed
     vscode.workspace.onDidCloseTextDocument((document: vscode.TextDocument) => {
         diagnosticCollection.delete(document.uri);
-        documentHashMemory[document.fileName] = '';
     }, null, context.subscriptions);
 }
 
