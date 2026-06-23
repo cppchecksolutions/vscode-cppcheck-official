@@ -208,9 +208,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
         // Only analyze previewed files if user stays on them for 10 seconds
         if (tab && tab.isPreview) {
-            console.log('timer started');
             previewAnalysisTimer = setTimeout(() => {
-                console.log('analysis run');
                 handleDocument(editor.document);
             }, 10000);
         }
