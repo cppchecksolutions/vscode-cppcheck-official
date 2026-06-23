@@ -1,10 +1,14 @@
 import * as vscode from 'vscode';
 import * as cp from 'child_process';
 import * as xml2js from 'xml2js';
+import * as crypto from 'crypto';
 
 import { documentationLinkMap, getPremiumCertLink } from './util/documentation';
 import { runCommand } from './util/scripts';
 import { looksLikePath, resolvePath, findWorkspaceRoot } from './util/path';
+
+// To keep track of document changes we save hashed versions of their content to this record
+let documentHashMemory : Record<string, string> = {};
 
 let cppcheckProgressIndicator: vscode.StatusBarItem;
 let checksRunning = false;
@@ -76,6 +80,13 @@ function updateProgressIndicator(): void {
 	}
 }
 
+function getDocumentSha1(document: vscode.TextDocument): string {
+    return crypto
+        .createHash('sha1')
+        .update(document.getText(), 'utf8')
+        .digest('hex');
+}
+
 // This method is called when your extension is activated.
 // Your extension is activated the very first time the command is executed.
 export async function activate(context: vscode.ExtensionContext) {
@@ -106,6 +117,15 @@ export async function activate(context: vscode.ExtensionContext) {
         if (!["c", "cpp"].includes(document.languageId)) {
             // Not a C/C++ file, skip
             return;
+        }
+
+        if ((Object.keys(documentHashMemory) as Array<string>).includes(document.fileName)) {
+            // Check file content against memory, if it has not changed since last check do early return
+            const newHash = getDocumentSha1(document);
+            const oldHash = documentHashMemory[document.fileName];
+            if (newHash === oldHash) {
+                return;
+            }
         }
 
         // Check if the document is visible in any editor
@@ -367,6 +387,12 @@ async function runCppcheckOnFileXML(
             }
             diagnosticCollection.set(document.uri, diagnostics);
         });
+
+        // If checks have run without error, save hashed document content to memory
+        if (!code) {
+            const hashedContentOfFile = getDocumentSha1(document);
+            documentHashMemory[document.fileName] = hashedContentOfFile;
+        }
     });
 
     checksRunning = false;
