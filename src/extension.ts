@@ -10,6 +10,7 @@ import { looksLikePath, resolvePath, findWorkspaceRoot } from './util/path';
 // To keep track of document changes we save hashed versions of their content to this record
 let documentHashMemory : Record<string, string> = {};
 
+let previewAnalysisTimer: NodeJS.Timeout | undefined;
 let cppcheckProgressIndicator: vscode.StatusBarItem;
 let checksRunning = false;
 
@@ -194,6 +195,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
     // Run cppcheck when opening files in text editor
     vscode.window.onDidChangeActiveTextEditor(editor => {
+        clearTimeout(previewAnalysisTimer);
         if (!editor) {
             return;
         }
@@ -203,15 +205,16 @@ export async function activate(context: vscode.ExtensionContext) {
             t.input.uri.toString() === editor.document.uri.toString();
         }
         );
-        
-        if (!tab) {
-            return;
+
+        // Only analyze previewed files if user stays on them for 10 seconds
+        if (tab && tab.isPreview) {
+            console.log('timer started');
+            previewAnalysisTimer = setTimeout(() => {
+                console.log('analysis run');
+                handleDocument(editor.document);
+            }, 10000);
         }
-        console.log('tab', tab, 'isPinned', tab.isPinned);
-        // Ignore preview tabs
-        if (!tab.isPinned) {
-            return;
-        }
+
         handleDocument(editor.document);
     }, null, context.subscriptions);
 
