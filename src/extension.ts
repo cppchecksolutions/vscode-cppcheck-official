@@ -9,6 +9,8 @@ import { looksLikePath, resolvePath, findWorkspaceRoot } from './util/path';
 
 // To keep track of document changes we save hashed versions of their content to this record
 let documentHashMemory : Record<string, string> = {};
+// To keep track of header warnings created from analysis of source file we save their relations to headerSourceFileRelationMap
+let headerSourceFileRelationMap: Record<string, Set<string>> = {};
 
 let previewAnalysisTimer: NodeJS.Timeout | undefined;
 let previewedDocument: vscode.TextDocument | undefined;
@@ -114,6 +116,21 @@ export async function activate(context: vscode.ExtensionContext) {
     const diagnosticCollection = vscode.languages.createDiagnosticCollection("Cppcheck");
     context.subscriptions.push(diagnosticCollection);
 
+    function clearDiagnosticForDoc(doc: vscode.TextDocument): void {
+        diagnosticCollection.delete(doc.uri);
+        // If we are displaying header errors generated from analysing doc (and only from this), clear these
+        for (const headerUri of Object.keys(headerSourceFileRelationMap)) {
+            if (headerSourceFileRelationMap[headerUri].has(doc.uri.toString())) {
+                if (headerSourceFileRelationMap[headerUri].size === 1) {
+                    diagnosticCollection.delete(vscode.Uri.parse(headerUri));
+                } else {
+                    headerSourceFileRelationMap[headerUri].delete(doc.uri.toString());
+                }
+            }
+        }
+        documentHashMemory[doc.fileName] = '';
+    }
+
     async function handleDocument(document: vscode.TextDocument) {
         // Only process C/C++ files.
         if (!["c", "cpp"].includes(document.languageId)) {
@@ -164,8 +181,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
         // If disabled, clear any existing diagnostics for this doc.
         if (!isEnabled) {
-            diagnosticCollection.delete(document.uri);
-            documentHashMemory[document.fileName] = '';
+            clearDiagnosticForDoc(document);
             return;
         }
 
@@ -217,13 +233,22 @@ export async function activate(context: vscode.ExtensionContext) {
                 }
             }
         }
+        for (const tab of e.closed) {
+            if (tab.input instanceof vscode.TabInputText) {
+                const uri = tab.input.uri;
+                const document =
+                    vscode.workspace.textDocuments.find(
+                        doc => doc.uri.toString() === uri.toString()
+                    ) ?? await vscode.workspace.openTextDocument(uri);
+                clearDiagnosticForDoc(document);
+            }
+        }
     }, null, context.subscriptions);
 
     // Clear diagnostics of previewed files when no longer viewed
     vscode.window.onDidChangeActiveTextEditor(() => {
         if (previewedDocument) {
-            diagnosticCollection.delete(previewedDocument.uri);
-            documentHashMemory[previewedDocument.fileName] = '';
+            clearDiagnosticForDoc(previewedDocument);
             previewedDocument = undefined;
         }
     });
@@ -238,8 +263,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
     // Clean up diagnostics when a file is closed
     vscode.workspace.onDidCloseTextDocument((document: vscode.TextDocument) => {
-        diagnosticCollection.delete(document.uri);
-        documentHashMemory[document.fileName] = '';
+        clearDiagnosticForDoc(document);
     }, null, context.subscriptions);
 }
 
@@ -416,8 +440,15 @@ async function runCppcheckOnFileXML(
                     diagnostics[uri].push(diagnostic);
                 }
             }
+            const sourceDocumentUri = document.uri.toString();
             for (const uri of Object.keys(diagnostics)) {
                 diagnosticCollection.set(vscode.Uri.parse(uri), diagnostics[uri]);
+                if (uri !== sourceDocumentUri) {
+                    if (headerSourceFileRelationMap[uri] === null ||headerSourceFileRelationMap[uri] === undefined) {
+                        headerSourceFileRelationMap[uri] = new Set;
+                    }
+                    headerSourceFileRelationMap[uri].add(sourceDocumentUri);
+                }
             }
         });
 
