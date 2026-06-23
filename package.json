@@ -62,7 +62,7 @@
           "cppcheck-official.path": {
             "type": "string",
             "default": "",
-            "description": "Path to the cppcheck executable. If empty, uses 'cppcheck' from the system PATH."
+            "description": "Path to the cppcheck executable (i.e. `/path/to/cppcheck.exe`). If empty, uses 'cppcheck' from the system PATH."
           },
           "cppcheck-official.arguments": {
             "type": "string",
