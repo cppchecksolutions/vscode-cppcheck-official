@@ -11,6 +11,7 @@ import { looksLikePath, resolvePath, findWorkspaceRoot } from './util/path';
 let documentHashMemory : Record<string, string> = {};
 
 let previewAnalysisTimer: NodeJS.Timeout | undefined;
+let previewedDocument: vscode.TextDocument | undefined;
 let cppcheckProgressIndicator: vscode.StatusBarItem;
 let checksRunning = false;
 
@@ -193,28 +194,38 @@ export async function activate(context: vscode.ExtensionContext) {
     // Run cppcheck when a file is opened
     vscode.workspace.onDidOpenTextDocument(handleDocument, null, context.subscriptions);
 
-    // Run cppcheck when opening files in text editor
-    vscode.window.onDidChangeActiveTextEditor(editor => {
+    // Run cppcheck when changing files viewed in text editor
+    vscode.window.tabGroups.onDidChangeTabs(async e => {
         clearTimeout(previewAnalysisTimer);
-        if (!editor) {
-            return;
+        for (const tab of e.changed) {
+            if (tab.input instanceof vscode.TabInputText) {
+                const uri = tab.input.uri;
+                const document =
+                    vscode.workspace.textDocuments.find(
+                        doc => doc.uri.toString() === uri.toString()
+                    ) ?? await vscode.workspace.openTextDocument(uri);
+                // Only analyze previewed files if user stays on them for 10 seconds
+                if (tab && tab.isPreview) {
+                    previewAnalysisTimer = setTimeout(() => {
+                        handleDocument(document);
+                        previewedDocument = document;
+                    }, 10000);
+                } else {
+                    // If file is properly opened we run analysis right away
+                    handleDocument(document);
+                }
+            }
         }
-        const tabs = vscode.window.tabGroups.all.flatMap(g => g.tabs);
-        const tab = tabs.find(t => {
-            return t.input instanceof vscode.TabInputText &&
-            t.input.uri.toString() === editor.document.uri.toString();
-        }
-        );
-
-        // Only analyze previewed files if user stays on them for 10 seconds
-        if (tab && tab.isPreview) {
-            previewAnalysisTimer = setTimeout(() => {
-                handleDocument(editor.document);
-            }, 10000);
-        }
-
-        handleDocument(editor.document);
     }, null, context.subscriptions);
+
+    // Clear diagnostics of previewed files when no longer viewed
+    vscode.window.onDidChangeActiveTextEditor(() => {
+        if (previewedDocument) {
+            diagnosticCollection.delete(previewedDocument.uri);
+            documentHashMemory[previewedDocument.fileName] = '';
+            previewedDocument = undefined;
+        }
+    });
 
     // Run cppcheck for all open files when the workspace is opened
     vscode.workspace.onDidChangeWorkspaceFolders(() => {
@@ -227,6 +238,7 @@ export async function activate(context: vscode.ExtensionContext) {
     // Clean up diagnostics when a file is closed
     vscode.workspace.onDidCloseTextDocument((document: vscode.TextDocument) => {
         diagnosticCollection.delete(document.uri);
+        documentHashMemory[document.fileName] = '';
     }, null, context.subscriptions);
 }
 
