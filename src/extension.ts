@@ -349,7 +349,7 @@ async function runCppcheckOnFileXML(
 
             const errors = result.results?.errors?.[0]?.error || [];
             const diagnostics: Record<string, vscode.Diagnostic[]> = {};
-
+            console.log('errors from file', document.fileName, errors);
             for (const e of errors) {
                 const isCriticalError = criticalWarningTypes.includes(e.$.id);
                 const locations = e.location || [];
@@ -377,7 +377,7 @@ async function runCppcheckOnFileXML(
 
                 // Cppcheck col number is 1-indexed, while VS Code uses 0-indexing
                 let col = Number(mainLoc.column) - 1;
-                if (isNaN(col) || col < 0 || col > document.lineAt(line).text.length) {
+                if (isNaN(col) || col < 0) {
                     col = 0;
                 }
 
@@ -405,10 +405,14 @@ async function runCppcheckOnFileXML(
                     const loc = locations[locations.length - i].$;
                     const msg = loc.info;
                     const lLine = Number(loc.line) - 1;
-                    const lCol = Number(loc.col) - 1;
+                    var lCol = Number(loc.col) - 1;
 
                     if (msg === null || msg === undefined || isNaN(lLine) || lLine < 0 || lLine >= document.lineCount) {
                         continue;
+                    }
+
+                    if (isNaN(lCol) || lCol < 0) {
+                        lCol = 0;
                     }
 
                     const relatedRange = new vscode.Range(
@@ -444,7 +448,26 @@ async function runCppcheckOnFileXML(
             }
             const sourceDocumentUri = document.uri.toString();
             for (const uri of Object.keys(diagnostics)) {
-                diagnosticCollection.set(vscode.Uri.parse(uri), diagnostics[uri]);
+                const existingDiagnostics =
+                diagnosticCollection.get(vscode.Uri.parse(uri));
+                // If file has existing diagnostics from analyzing other files we do not want to overwrite those
+                const newDiagnostics = diagnostics[uri];
+                
+                if (existingDiagnostics) {
+                    // Compare existing diagnostics to new diagnostics (error code & range) to only push unique ones
+                    for (const diagnostic of existingDiagnostics) {
+                        if (!newDiagnostics.some((d) => {
+                            if (typeof(diagnostic?.code) === "object" && typeof(diagnostic?.code) !== null && typeof(d?.code) === "object" && typeof(d?.code) !== null) {
+                                return diagnostic.code.value === d.code.value && diagnostic.range.isEqual(d.range);
+                            } else {
+                                return diagnostic.code === d.code && diagnostic.range.isEqual(d.range);
+                            }
+                        })) {
+                            newDiagnostics.push(diagnostic);
+                        }
+                    }  
+                }
+                diagnosticCollection.set(vscode.Uri.parse(uri), newDiagnostics);
                 if (fileRelationMap[uri] === null ||fileRelationMap[uri] === undefined) {
                     fileRelationMap[uri] = new Set;
                 }
