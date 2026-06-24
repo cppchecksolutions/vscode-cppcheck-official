@@ -9,6 +9,8 @@ import { looksLikePath, resolvePath, findWorkspaceRoot } from './util/path';
 
 // To keep track of document changes we save hashed versions of their content to this record
 let documentHashMemory : Record<string, string> = {};
+// To keep track of warnings for files created from analysis of other files we save their relations to fileRelationMap
+let fileRelationMap: Record<string, Set<string>> = {};
 
 let previewAnalysisTimer: NodeJS.Timeout | undefined;
 let previewedDocument: vscode.TextDocument | undefined;
@@ -114,6 +116,22 @@ export async function activate(context: vscode.ExtensionContext) {
     const diagnosticCollection = vscode.languages.createDiagnosticCollection("Cppcheck");
     context.subscriptions.push(diagnosticCollection);
 
+    function clearDiagnosticForDoc(doc: vscode.TextDocument): void {
+        // Any file who was warnings generated from (and only from) the closed doc have their diagnostics cleared
+        // NOTE: This includes the closed doc - its diagnostics will only be cleared if its warnings only come from analysis of it itself
+        for (const fileUri of Object.keys(fileRelationMap)) {
+            if (fileRelationMap[fileUri].has(doc.uri.toString())) {
+                if (fileRelationMap[fileUri].size <= 1) {
+                    diagnosticCollection.delete(vscode.Uri.parse(fileUri));
+                    fileRelationMap[fileUri].clear();
+                } else {
+                    fileRelationMap[fileUri].delete(doc.uri.toString());
+                }
+            }
+        }
+        documentHashMemory[doc.fileName] = '';
+    }
+
     async function handleDocument(document: vscode.TextDocument) {
         // Only process C/C++ files.
         if (!["c", "cpp"].includes(document.languageId)) {
@@ -164,8 +182,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
         // If disabled, clear any existing diagnostics for this doc.
         if (!isEnabled) {
-            diagnosticCollection.delete(document.uri);
-            documentHashMemory[document.fileName] = '';
+            clearDiagnosticForDoc(document);
             return;
         }
 
@@ -217,13 +234,22 @@ export async function activate(context: vscode.ExtensionContext) {
                 }
             }
         }
+        for (const tab of e.closed) {
+            if (tab.input instanceof vscode.TabInputText) {
+                const uri = tab.input.uri;
+                const document =
+                    vscode.workspace.textDocuments.find(
+                        doc => doc.uri.toString() === uri.toString()
+                    ) ?? await vscode.workspace.openTextDocument(uri);
+                clearDiagnosticForDoc(document);
+            }
+        }
     }, null, context.subscriptions);
 
     // Clear diagnostics of previewed files when no longer viewed
     vscode.window.onDidChangeActiveTextEditor(() => {
         if (previewedDocument) {
-            diagnosticCollection.delete(previewedDocument.uri);
-            documentHashMemory[previewedDocument.fileName] = '';
+            clearDiagnosticForDoc(previewedDocument);
             previewedDocument = undefined;
         }
     });
@@ -238,8 +264,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
     // Clean up diagnostics when a file is closed
     vscode.workspace.onDidCloseTextDocument((document: vscode.TextDocument) => {
-        diagnosticCollection.delete(document.uri);
-        documentHashMemory[document.fileName] = '';
+        clearDiagnosticForDoc(document);
     }, null, context.subscriptions);
 }
 
@@ -272,7 +297,7 @@ async function runCppcheckOnFileXML(
         return arg;
     });
 
-    let proc;
+    let usingProjectFile = false;
     const args = [
         '--enable=all',
         '--inline-suppr',
@@ -283,10 +308,13 @@ async function runCppcheckOnFileXML(
         ...argsParsed,
     ].filter(Boolean);
     if (processedArgs.includes("--project")) {
+        usingProjectFile = true;
         args.push(`--file-filter=${filePath}`);
     } else {
         args.push(filePath);
     }
+
+    let proc;
     const cwd = findWorkspaceRoot();
     proc = cp.spawn(commandPath, args, {
         cwd,
@@ -313,14 +341,14 @@ async function runCppcheckOnFileXML(
             vscode.window.showErrorMessage(errorMessage);
         }
         const parser = new xml2js.Parser({ explicitArray: true });
-        parser.parseString(xmlOutput, (err, result) => {
+        parser.parseString(xmlOutput, async (err, result) => {
             if (err) {
                 console.error("XML parse error:", err);
                 return;
             }
 
             const errors = result.results?.errors?.[0]?.error || [];
-            const diagnostics: vscode.Diagnostic[] = [];
+            const diagnostics: Record<string, vscode.Diagnostic[]> = {};
 
             for (const e of errors) {
                 const isCriticalError = criticalWarningTypes.includes(e.$.id);
@@ -331,8 +359,8 @@ async function runCppcheckOnFileXML(
 
                 const mainLoc = locations[locations.length - 1].$;
                 
-                // If main location is not current file, then skip displaying warning unless it is critical
-                if (!isCriticalError && !filePath.endsWith(mainLoc.file)) {
+                // If main location is not current file, we are not using a project file and warning is not critical then skip displaying warning
+                if (!isCriticalError && usingProjectFile && !filePath.endsWith(mainLoc.file)) {
                     continue;
                 }
 
@@ -387,10 +415,10 @@ async function runCppcheckOnFileXML(
                         lLine, lCol,
                         lLine, document.lineAt(lLine).text.length
                     );
-
+                    const relatedDocument = await vscode.workspace.openTextDocument(loc.file);
                     relatedInfos.push(
                         new vscode.DiagnosticRelatedInformation(
-                            new vscode.Location(document.uri, relatedRange),
+                            new vscode.Location(relatedDocument?.uri ?? '', relatedRange),
                             msg
                         )
                     );
@@ -398,9 +426,31 @@ async function runCppcheckOnFileXML(
                 if (relatedInfos.length > 0) {
                     diagnostic.relatedInformation = relatedInfos;
                 }
-                diagnostics.push(diagnostic);
+                const diagnosticFile = mainLoc.file;
+                if (diagnosticFile === document.fileName) {
+                    const uri = document.uri.toString();
+                    if (diagnostics[uri] === null || diagnostics[uri] === undefined) {
+                        diagnostics[uri] = [];
+                    }
+                    diagnostics[uri].push(diagnostic);
+                } else {
+                    const relatedDocument = await vscode.workspace.openTextDocument(mainLoc.file);
+                    const uri = relatedDocument.uri.toString();
+                    if (diagnostics[uri] === null || diagnostics[uri] === undefined) {
+                        diagnostics[uri] = [];
+                    }
+                    diagnostics[uri].push(diagnostic);
+                }
             }
-            diagnosticCollection.set(document.uri, diagnostics);
+            const sourceDocumentUri = document.uri.toString();
+            for (const uri of Object.keys(diagnostics)) {
+                diagnosticCollection.set(vscode.Uri.parse(uri), diagnostics[uri]);
+                if (fileRelationMap[uri] === null ||fileRelationMap[uri] === undefined) {
+                    fileRelationMap[uri] = new Set;
+                }
+                // NOTE: uri can be the same as sourceDocumentUri
+                fileRelationMap[uri].add(sourceDocumentUri);
+            }
         });
 
         // If checks have run without error, save hashed document content to memory
