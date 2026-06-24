@@ -6,6 +6,7 @@ import * as crypto from 'crypto';
 import { documentationLinkMap, getPremiumCertLink } from './util/documentation';
 import { runCommand } from './util/scripts';
 import { looksLikePath, resolvePath, findWorkspaceRoot } from './util/path';
+import { diagnosticsUnion } from './util/diagnostics';
 
 // To keep track of document changes we save hashed versions of their content to this record
 let documentHashMemory : Record<string, string> = {};
@@ -349,7 +350,6 @@ async function runCppcheckOnFileXML(
 
             const errors = result.results?.errors?.[0]?.error || [];
             const diagnostics: Record<string, vscode.Diagnostic[]> = {};
-            console.log('errors from file', document.fileName, errors);
             for (const e of errors) {
                 const isCriticalError = criticalWarningTypes.includes(e.$.id);
                 const locations = e.location || [];
@@ -358,11 +358,12 @@ async function runCppcheckOnFileXML(
                 }
 
                 const mainLoc = locations[locations.length - 1].$;
-                
                 // If main location is not current file, we are not using a project file and warning is not critical then skip displaying warning
                 if (!isCriticalError && usingProjectFile && !filePath.endsWith(mainLoc.file)) {
                     continue;
                 }
+
+                const mainLocDocument = await vscode.workspace.openTextDocument(mainLoc.file);
 
                 // Cppcheck line number is 1-indexed, while VS Code uses 0-indexing
                 let line = Number(mainLoc.line) - 1;
@@ -377,7 +378,7 @@ async function runCppcheckOnFileXML(
 
                 // Cppcheck col number is 1-indexed, while VS Code uses 0-indexing
                 let col = Number(mainLoc.column) - 1;
-                if (isNaN(col) || col < 0) {
+                if (isNaN(col) || col < 0 || col > mainLocDocument.lineAt(line).text.length) {
                     col = 0;
                 }
 
@@ -386,7 +387,7 @@ async function runCppcheckOnFileXML(
                     continue;
                 }
 
-                const range = new vscode.Range(line, col, line, document.lineAt(line).text.length);
+                const range = new vscode.Range(line, col, line, mainLocDocument.lineAt(line).text.length);
                 const diagnostic = new vscode.Diagnostic(range, e.$.msg, severity);
                 diagnostic.source = "cppcheck";
                 // If we have a link to documentation, include it
@@ -405,21 +406,17 @@ async function runCppcheckOnFileXML(
                     const loc = locations[locations.length - i].$;
                     const msg = loc.info;
                     const lLine = Number(loc.line) - 1;
-                    var lCol = Number(loc.col) - 1;
+                    const lCol = Number(loc.col) - 1;
 
                     if (msg === null || msg === undefined || isNaN(lLine) || lLine < 0 || lLine >= document.lineCount) {
                         continue;
                     }
 
-                    if (isNaN(lCol) || lCol < 0) {
-                        lCol = 0;
-                    }
-
+                    const relatedDocument = await vscode.workspace.openTextDocument(loc.file);
                     const relatedRange = new vscode.Range(
                         lLine, lCol,
-                        lLine, document.lineAt(lLine).text.length
+                        lLine, relatedDocument.lineAt(lLine).text.length
                     );
-                    const relatedDocument = await vscode.workspace.openTextDocument(loc.file);
                     relatedInfos.push(
                         new vscode.DiagnosticRelatedInformation(
                             new vscode.Location(relatedDocument?.uri ?? '', relatedRange),
@@ -427,6 +424,7 @@ async function runCppcheckOnFileXML(
                         )
                     );
                 }
+
                 if (relatedInfos.length > 0) {
                     diagnostic.relatedInformation = relatedInfos;
                 }
@@ -448,24 +446,11 @@ async function runCppcheckOnFileXML(
             }
             const sourceDocumentUri = document.uri.toString();
             for (const uri of Object.keys(diagnostics)) {
-                const existingDiagnostics =
-                diagnosticCollection.get(vscode.Uri.parse(uri));
+                var newDiagnostics = diagnostics[uri];
                 // If file has existing diagnostics from analyzing other files we do not want to overwrite those
-                const newDiagnostics = diagnostics[uri];
-                
+                const existingDiagnostics = diagnosticCollection.get(vscode.Uri.parse(uri));
                 if (existingDiagnostics) {
-                    // Compare existing diagnostics to new diagnostics (error code & range) to only push unique ones
-                    for (const diagnostic of existingDiagnostics) {
-                        if (!newDiagnostics.some((d) => {
-                            if (typeof(diagnostic?.code) === "object" && typeof(diagnostic?.code) !== null && typeof(d?.code) === "object" && typeof(d?.code) !== null) {
-                                return diagnostic.code.value === d.code.value && diagnostic.range.isEqual(d.range);
-                            } else {
-                                return diagnostic.code === d.code && diagnostic.range.isEqual(d.range);
-                            }
-                        })) {
-                            newDiagnostics.push(diagnostic);
-                        }
-                    }  
+                    newDiagnostics = diagnosticsUnion(newDiagnostics, existingDiagnostics.flat());
                 }
                 diagnosticCollection.set(vscode.Uri.parse(uri), newDiagnostics);
                 if (fileRelationMap[uri] === null ||fileRelationMap[uri] === undefined) {
