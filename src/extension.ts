@@ -309,6 +309,7 @@ async function runCppcheckOnFileXML(
             if (out.trim().length > 0) {
                 errorMessage = out.trim();
             }
+            errorMessage = `${errorMessage}, Command: ${commandPath} ${args.join(' ')}`;
             vscode.window.showErrorMessage(errorMessage);
         }
         const parser = new xml2js.Parser({ explicitArray: true });
