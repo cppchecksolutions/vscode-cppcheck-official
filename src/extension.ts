@@ -9,8 +9,8 @@ import { looksLikePath, resolvePath, findWorkspaceRoot } from './util/path';
 
 // To keep track of document changes we save hashed versions of their content to this record
 let documentHashMemory : Record<string, string> = {};
-// To keep track of header warnings created from analysis of source file we save their relations to headerSourceFileRelationMap
-let headerSourceFileRelationMap: Record<string, Set<string>> = {};
+// To keep track of warnings for files created from analysis of other files we save their relations to fileRelationMap
+let fileRelationMap: Record<string, Set<string>> = {};
 
 let previewAnalysisTimer: NodeJS.Timeout | undefined;
 let previewedDocument: vscode.TextDocument | undefined;
@@ -117,14 +117,15 @@ export async function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(diagnosticCollection);
 
     function clearDiagnosticForDoc(doc: vscode.TextDocument): void {
-        diagnosticCollection.delete(doc.uri);
-        // If we are displaying header errors generated from analysing doc (and only from this), clear these
-        for (const headerUri of Object.keys(headerSourceFileRelationMap)) {
-            if (headerSourceFileRelationMap[headerUri].has(doc.uri.toString())) {
-                if (headerSourceFileRelationMap[headerUri].size === 1) {
-                    diagnosticCollection.delete(vscode.Uri.parse(headerUri));
+        // Any file who was warnings generated from (and only from) the closed doc have their diagnostics cleared
+        // NOTE: This includes the closed doc - its diagnostics will only be cleared if its warnings only come from analysis of it itself
+        for (const fileUri of Object.keys(fileRelationMap)) {
+            if (fileRelationMap[fileUri].has(doc.uri.toString())) {
+                if (fileRelationMap[fileUri].size <= 1) {
+                    diagnosticCollection.delete(vscode.Uri.parse(fileUri));
+                    fileRelationMap[fileUri].clear();
                 } else {
-                    headerSourceFileRelationMap[headerUri].delete(doc.uri.toString());
+                    fileRelationMap[fileUri].delete(doc.uri.toString());
                 }
             }
         }
@@ -443,12 +444,11 @@ async function runCppcheckOnFileXML(
             const sourceDocumentUri = document.uri.toString();
             for (const uri of Object.keys(diagnostics)) {
                 diagnosticCollection.set(vscode.Uri.parse(uri), diagnostics[uri]);
-                if (uri !== sourceDocumentUri) {
-                    if (headerSourceFileRelationMap[uri] === null ||headerSourceFileRelationMap[uri] === undefined) {
-                        headerSourceFileRelationMap[uri] = new Set;
-                    }
-                    headerSourceFileRelationMap[uri].add(sourceDocumentUri);
+                if (fileRelationMap[uri] === null ||fileRelationMap[uri] === undefined) {
+                    fileRelationMap[uri] = new Set;
                 }
+                // NOTE: uri can be the same as sourceDocumentUri
+                fileRelationMap[uri].add(sourceDocumentUri);
             }
         });
 
