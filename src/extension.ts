@@ -6,7 +6,7 @@ import * as crypto from 'crypto';
 import { documentationLinkMap, getPremiumCertLink } from './util/documentation';
 import { runCommand } from './util/scripts';
 import { looksLikePath, resolvePath, findWorkspaceRoot } from './util/path';
-import { diagnosticsUnion } from './util/diagnostics';
+import { CodeActionProvider, diagnosticsUnion } from './util/diagnostics';
 
 // To keep track of document changes we save hashed versions of their content to this record
 let documentHashMemory : Record<string, string> = {};
@@ -95,6 +95,17 @@ function getDocumentSha1(document: vscode.TextDocument): string {
 // This method is called when your extension is activated.
 // Your extension is activated the very first time the command is executed.
 export async function activate(context: vscode.ExtensionContext) {
+    context.subscriptions.push(
+        vscode.languages.registerCodeActionsProvider(
+            { pattern: "**/*" },
+            new CodeActionProvider(),
+            {
+                providedCodeActionKinds: [
+                    vscode.CodeActionKind.QuickFix
+                ]
+            }
+        )
+    );
 
     // Register a command to push user to workspace settings from walkthrough
     context.subscriptions.push(
@@ -105,6 +116,16 @@ export async function activate(context: vscode.ExtensionContext) {
                     'workbench.action.openWorkspaceSettings',
                     'cppcheck-official.arguments'
                 );
+            }
+        )
+    );
+    
+    // Register a command for suppressing a warning type
+    context.subscriptions.push(
+        vscode.commands.registerCommand(
+            "cppcheck-official.suppressWarningAll",
+            (diagnostic: vscode.Diagnostic) => {
+                console.log("Suppress", diagnostic);
             }
         )
     );

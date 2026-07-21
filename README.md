@@ -16,7 +16,7 @@
 - **Warning notes**: Display notes for warnings when those are available
 - **Dynamic config**: The extension supports running a script to generate arguments to pass to cppcheck. This can be done by including the command in the argument field wrapped with \@(), e.g. `--suppress=memleak:src/file1.cpp @(bash path/to/script.sh)`. The script is expected to output the argument(s) wrapped with \@(). If the script e.g. creates a project file it should print out as `@(--project=path/to/projectfile.json)`. This output will be spliced into the argument string as such: `--suppress=memleak:src/file1.cpp --project=path/to/projectfile.json`.
 
-- **Warning suppression**: Warnings of a specific type can be supressed with the --supress flag in the argument field in the extension settings. The extension also supports inline suppression for specific lines of code, simply write `// cppcheck-supress >warning id<` (see image below).
+- **Warning suppression**: Warnings of a specific type can be supressed with the --suppress flag in the argument field in the extension settings. The extension also supports inline suppression for specific lines of code, simply write `// cppcheck-suppress >warning id<` (see image below).
 ![Image showing how to suppress warnings](./images/suppression.png)
 ## Requirements
 
