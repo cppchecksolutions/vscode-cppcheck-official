@@ -6,7 +6,8 @@ import * as crypto from 'crypto';
 import { documentationLinkMap, getPremiumCertLink } from './util/documentation';
 import { runCommand } from './util/scripts';
 import { looksLikePath, resolvePath, findWorkspaceRoot } from './util/path';
-import { CodeActionProvider, diagnosticsUnion } from './util/diagnostics';
+import { diagnosticsUnion } from './util/diagnostics';
+import { CodeActionProvider } from './util/codeActions';
 
 // To keep track of document changes we save hashed versions of their content to this record
 let documentHashMemory : Record<string, string> = {};
