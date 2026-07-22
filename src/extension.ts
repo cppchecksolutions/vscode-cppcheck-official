@@ -339,8 +339,8 @@ async function runCppcheckOnFileXML(
         '--suppress=missingIncludeSystem',
         ...argsParsed,
     ].filter(Boolean);
-    
-    if (processedArgs.includes("--project")) {
+
+    if (processedArgs.includes("--project=")) {
         usingProjectFile = true;
         args.push(`--file-filter=${filePath}`);
         // If project file is of type .cppcheck we keep track of it
@@ -349,12 +349,15 @@ async function runCppcheckOnFileXML(
         if (projectFileType.toLowerCase() === 'cppcheck') {
             cppcheckProjectFileUri = vscode.Uri.file(projectFilePath);
         }
+        console.log('cppcheckProjectFileUri', cppcheckProjectFileUri);
     } else {
         args.push(filePath);
     }
 
     let proc;
     const cwd = findWorkspaceRoot();
+    console.log('command', commandPath, args);
+    console.log('cwd', cwd);
     proc = cp.spawn(commandPath, args, {
         cwd,
     });
@@ -400,9 +403,10 @@ async function runCppcheckOnFileXML(
                 if (!isCriticalError && usingProjectFile && !filePath.endsWith(mainLoc.file)) {
                     continue;
                 }
-
+                console.log('open file', mainLoc.file);
+                console.log('locations', locations);
                 const mainLocDocument = await vscode.workspace.openTextDocument(mainLoc.file);
-
+                console.log('file opnened');
                 // Cppcheck line number is 1-indexed, while VS Code uses 0-indexing
                 let line = Number(mainLoc.line) - 1;
                 // Invalid line number usually means non-analysis output 

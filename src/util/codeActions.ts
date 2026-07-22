@@ -48,8 +48,8 @@ export class CodeActionProvider implements vscode.CodeActionProvider {
 
             suppressTypeAction.command = {
                 command: "cppcheck-official.suppressWarningAll",
-                title: "Suppress warning here",
-                arguments: [diagnostic]
+                title: "Suppress warning universally",
+                arguments: [diagnosticCode]
             };
 
             suppressTypeAction.diagnostics = [diagnostic];
