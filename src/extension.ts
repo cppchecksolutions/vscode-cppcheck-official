@@ -8,6 +8,7 @@ import { runCommand } from './util/scripts';
 import { looksLikePath, resolvePath, findWorkspaceRoot } from './util/path';
 import { diagnosticsUnion } from './util/diagnostics';
 import { CodeActionProvider } from './util/codeActions';
+import { writeSuppressionToProjectFile } from './util/files';
 
 // To keep track of document changes we save hashed versions of their content to this record
 let documentHashMemory : Record<string, string> = {};
@@ -18,6 +19,7 @@ let previewAnalysisTimer: NodeJS.Timeout | undefined;
 let previewedDocument: vscode.TextDocument | undefined;
 let cppcheckProgressIndicator: vscode.StatusBarItem;
 let checksRunning = false;
+let cppcheckProjectFileUri: vscode.Uri | undefined;
 
 enum SeverityNumber {
     Info = 0,
@@ -96,6 +98,7 @@ function getDocumentSha1(document: vscode.TextDocument): string {
 // This method is called when your extension is activated.
 // Your extension is activated the very first time the command is executed.
 export async function activate(context: vscode.ExtensionContext) {
+    // Set up code actions provider
     context.subscriptions.push(
         vscode.languages.registerCodeActionsProvider(
             { pattern: "**/*" },
@@ -125,8 +128,12 @@ export async function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(
         vscode.commands.registerCommand(
             "cppcheck-official.suppressWarningAll",
-            (diagnostic: vscode.Diagnostic) => {
-                console.log("Suppress", diagnostic);
+            async (warningType : String) => {
+                if (cppcheckProjectFileUri) {
+                    await writeSuppressionToProjectFile(cppcheckProjectFileUri, warningType);
+                } else {
+                    vscode.window.showInformationMessage(`Adding suppression is currently only supported for .cppcheck project files`);
+                }
             }
         )
     );
@@ -321,6 +328,8 @@ async function runCppcheckOnFileXML(
     });
 
     let usingProjectFile = false;
+    cppcheckProjectFileUri = undefined;
+
     const args = [
         '--enable=all',
         '--inline-suppr',
@@ -330,9 +339,16 @@ async function runCppcheckOnFileXML(
         '--suppress=missingIncludeSystem',
         ...argsParsed,
     ].filter(Boolean);
+    
     if (processedArgs.includes("--project")) {
         usingProjectFile = true;
         args.push(`--file-filter=${filePath}`);
+        // If project file is of type .cppcheck we keep track of it
+        var projectFilePath = processedArgs.split('--project=')[1].split(' ')[0];
+        var projectFileType = projectFilePath.split('.')[1];
+        if (projectFileType.toLowerCase() === 'cppcheck') {
+            cppcheckProjectFileUri = vscode.Uri.file(projectFilePath);
+        }
     } else {
         args.push(filePath);
     }
