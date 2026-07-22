@@ -363,7 +363,12 @@ async function runCppcheckOnFileXML(
                     continue;
                 }
 
-                const mainLocDocument = await vscode.workspace.openTextDocument(mainLoc.file);
+                let mainLocDocument : vscode.TextDocument | undefined;
+                try {
+                    mainLocDocument = await vscode.workspace.openTextDocument(mainLoc.file);
+                } catch {
+                    // do nothing
+                }
 
                 // Cppcheck line number is 1-indexed, while VS Code uses 0-indexing
                 let line = Number(mainLoc.line) - 1;
@@ -378,7 +383,7 @@ async function runCppcheckOnFileXML(
 
                 // Cppcheck col number is 1-indexed, while VS Code uses 0-indexing
                 let col = Number(mainLoc.column) - 1;
-                if (isNaN(col) || col < 0 || col > mainLocDocument.lineAt(line).text.length) {
+                if (isNaN(col) || col < 0 || !mainLocDocument || col > mainLocDocument.lineAt(line).text.length) {
                     col = 0;
                 }
 
@@ -387,7 +392,7 @@ async function runCppcheckOnFileXML(
                     continue;
                 }
 
-                const range = new vscode.Range(line, col, line, mainLocDocument.lineAt(line).text.length);
+                const range = new vscode.Range(line, col, line, mainLocDocument ? mainLocDocument.lineAt(line).text.length : col);
                 const diagnostic = new vscode.Diagnostic(range, e.$.msg, severity);
                 diagnostic.source = "cppcheck";
                 // If we have a link to documentation, include it
@@ -412,36 +417,55 @@ async function runCppcheckOnFileXML(
                         continue;
                     }
 
-                    const relatedDocument = await vscode.workspace.openTextDocument(loc.file);
+                    var relatedDocument : vscode.TextDocument | undefined;
+                    try {
+                        relatedDocument = await vscode.workspace.openTextDocument(loc.file);
+                    } catch {
+                        // Do nothing
+                    }
                     const relatedRange = new vscode.Range(
                         lLine, lCol,
-                        lLine, relatedDocument.lineAt(lLine).text.length
+                        lLine, relatedDocument ? relatedDocument.lineAt(lLine).text.length : lCol
                     );
                     relatedInfos.push(
                         new vscode.DiagnosticRelatedInformation(
-                            new vscode.Location(relatedDocument?.uri ?? '', relatedRange),
+                            new vscode.Location(relatedDocument ? relatedDocument.uri : vscode.Uri.file(''), relatedRange),
                             msg
                         )
                     );
                 }
-
                 if (relatedInfos.length > 0) {
                     diagnostic.relatedInformation = relatedInfos;
                 }
                 const diagnosticFile = mainLoc.file;
-                if (diagnosticFile === document.fileName) {
+                var diagnosticFileIsOpenDocument = diagnosticFile === document.fileName;
+                if (!diagnosticFile.includes('/')) {
+                    // If we do not have file path but only name we asume diagnosed file is open document if they share name
+                    if (document.fileName.endsWith(diagnosticFile)) {
+                        diagnosticFileIsOpenDocument = true;
+                    }
+                }
+                if (diagnosticFileIsOpenDocument) {
                     const uri = document.uri.toString();
                     if (diagnostics[uri] === null || diagnostics[uri] === undefined) {
                         diagnostics[uri] = [];
                     }
                     diagnostics[uri].push(diagnostic);
                 } else {
-                    const relatedDocument = await vscode.workspace.openTextDocument(mainLoc.file);
-                    const uri = relatedDocument.uri.toString();
-                    if (diagnostics[uri] === null || diagnostics[uri] === undefined) {
-                        diagnostics[uri] = [];
+                    var relatedDocument : vscode.TextDocument | undefined;
+                    try {
+                        relatedDocument = await vscode.workspace.openTextDocument(mainLoc.file);
+                    } catch {
+                        // Do nothing
                     }
-                    diagnostics[uri].push(diagnostic);
+                    if (relatedDocument) {
+                        // Proceed if we are able to open the document
+                        const uri = relatedDocument.uri.toString();
+                        if (diagnostics[uri] === null || diagnostics[uri] === undefined) {
+                            diagnostics[uri] = [];
+                        }
+                        diagnostics[uri].push(diagnostic);
+                    }
                 }
             }
             const sourceDocumentUri = document.uri.toString();
