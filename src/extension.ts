@@ -263,6 +263,8 @@ export async function activate(context: vscode.ExtensionContext) {
             }
         })
     );
+
+    // Call update function once at setup to set the UI text to the settings current value
     updateMinSeverityOption();
 
     function clearDiagnosticForDoc(doc: vscode.TextDocument): void {
