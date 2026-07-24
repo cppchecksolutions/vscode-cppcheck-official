@@ -7,6 +7,8 @@ import { documentationLinkMap, getPremiumCertLink } from './util/documentation';
 import { runCommand } from './util/scripts';
 import { looksLikePath, resolvePath, findWorkspaceRoot } from './util/path';
 import { diagnosticsUnion } from './util/diagnostics';
+import { CodeActionProvider } from './util/codeActions';
+import { writeSuppressionToProjectFile } from './util/files';
 
 // To keep track of document changes we save hashed versions of their content to this record
 let documentHashMemory : Record<string, string> = {};
@@ -17,6 +19,7 @@ let previewAnalysisTimer: NodeJS.Timeout | undefined;
 let previewedDocument: vscode.TextDocument | undefined;
 let cppcheckProgressIndicator: vscode.StatusBarItem;
 let checksRunning = false;
+let cppcheckProjectFileUri: vscode.Uri | undefined;
 
 enum SeverityNumber {
     Info = 0,
@@ -94,7 +97,23 @@ function getDocumentSha1(document: vscode.TextDocument): string {
 
 // This method is called when your extension is activated.
 // Your extension is activated the very first time the command is executed.
-export async function activate(context: vscode.ExtensionContext) {
+export async function activate(context: vscode.ExtensionContext) {    
+    // Create a diagnostic collection.
+    const diagnosticCollection = vscode.languages.createDiagnosticCollection("Cppcheck");
+    context.subscriptions.push(diagnosticCollection);
+
+    // Set up code actions provider
+    context.subscriptions.push(
+        vscode.languages.registerCodeActionsProvider(
+            { pattern: "**/*" },
+            new CodeActionProvider(),
+            {
+                providedCodeActionKinds: [
+                    vscode.CodeActionKind.QuickFix
+                ]
+            }
+        )
+    );
 
     // Register a command to push user to workspace settings from walkthrough
     context.subscriptions.push(
@@ -108,14 +127,73 @@ export async function activate(context: vscode.ExtensionContext) {
             }
         )
     );
+    
+    // Register a command for suppressing a warning type
+    context.subscriptions.push(
+        vscode.commands.registerCommand(
+            "cppcheck-official.suppressWarningAll",
+            async (diagnosticCode : string) => {
+                if (cppcheckProjectFileUri) {
+                    const success = await writeSuppressionToProjectFile(cppcheckProjectFileUri, diagnosticCode);
+                    if (success) {
+                        vscode.window.showInformationMessage(`Suppression of ${diagnosticCode} added to project file ${cppcheckProjectFileUri.toString()}`);
+                        await vscode.commands.executeCommand('cppcheck-official.hideWarningType', diagnosticCode);
+                    } else {
+                        vscode.window.showErrorMessage(`Failed to add suppression of ${diagnosticCode} to project file ${cppcheckProjectFileUri.toString()}`);
+                    }
+                } else {
+                    vscode.window.showInformationMessage(`Adding suppression is currently only supported for .cppcheck project files`);
+                }
+            }
+        )
+    );
+
+    // Register a command for hiding a warning
+    context.subscriptions.push(
+        vscode.commands.registerCommand(
+            "cppcheck-official.hideWarning",
+            async (uri : vscode.Uri, diagnosticCode : string, range : vscode.Range) => {
+                const diagnostics = diagnosticCollection.get(uri);
+                const filteredDiagnostics = diagnostics?.filter((diagnostic : vscode.Diagnostic) => {
+                    var code = diagnostic.code;
+                    if (typeof(code) === "object" && typeof(code) !== null) {
+                        code = code.value;
+                    }
+                    if (code === diagnosticCode && diagnostic.range.isEqual(range)) {
+                        return false;
+                    }
+                    return true;
+                });
+                diagnosticCollection.set(uri, filteredDiagnostics);
+            }
+        )
+    );
+
+    // Register a command for hiding all warnings of a given type
+    context.subscriptions.push(
+        vscode.commands.registerCommand(
+            "cppcheck-official.hideWarningType",
+            async (diagnosticCode : string) => {
+                diagnosticCollection.forEach((uri : vscode.Uri, diagnostics : readonly vscode.Diagnostic[], collection : vscode.DiagnosticCollection) => {
+                    const filteredDiagnostics = diagnostics?.filter((diagnostic : vscode.Diagnostic) => {
+                        var code = diagnostic.code;
+                        if (typeof(code) === "object" && typeof(code) !== null) {
+                            code = code.value;
+                        }
+                        if (code === diagnosticCode) {
+                            return false;
+                        }
+                        return true;
+                    });
+                    collection.set(uri, filteredDiagnostics);
+                });
+            }
+        )
+    );
 
     // ProgressIndicator status bar item to show when checks are running
 	cppcheckProgressIndicator = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 10);
 	context.subscriptions.push(cppcheckProgressIndicator);
-
-    // Create a diagnostic collection.
-    const diagnosticCollection = vscode.languages.createDiagnosticCollection("Cppcheck");
-    context.subscriptions.push(diagnosticCollection);
 
     function clearDiagnosticForDoc(doc: vscode.TextDocument): void {
         // Any file who was warnings generated from (and only from) the closed doc have their diagnostics cleared
@@ -299,19 +377,29 @@ async function runCppcheckOnFileXML(
     });
 
     let usingProjectFile = false;
+    cppcheckProjectFileUri = undefined;
+
     const args = [
         '--enable=all',
         '--inline-suppr',
         '--xml',
-        '--suppress=unusedFunction',
-        '--suppress=missingInclude',
-        '--suppress=missingIncludeSystem',
         ...argsParsed,
     ].filter(Boolean);
-    if (processedArgs.includes("--project")) {
+
+    if (processedArgs.includes("--project=")) {
         usingProjectFile = true;
         args.push(`--file-filter=${filePath}`);
+        // If project file is of type .cppcheck we keep track of it
+        var projectFilePath = processedArgs.split('--project=')[1].split(' ')[0];
+        var projectFileType = projectFilePath.split('.')[1];
+        if (projectFileType.toLowerCase() === 'cppcheck') {
+            cppcheckProjectFileUri = vscode.Uri.file(projectFilePath);
+        }
     } else {
+        args.push(
+        '--suppress=unusedFunction',
+        '--suppress=missingInclude',
+        '--suppress=missingIncludeSystem');
         args.push(filePath);
     }
 
