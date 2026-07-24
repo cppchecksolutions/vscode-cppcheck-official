@@ -18,6 +18,7 @@ let fileRelationMap: Record<string, Set<string>> = {};
 let previewAnalysisTimer: NodeJS.Timeout | undefined;
 let previewedDocument: vscode.TextDocument | undefined;
 let cppcheckProgressIndicator: vscode.StatusBarItem;
+let severityOption: vscode.StatusBarItem;
 let checksRunning = false;
 let cppcheckProjectFileUri: vscode.Uri | undefined;
 
@@ -83,9 +84,18 @@ function updateProgressIndicator(): void {
 	if (checksRunning) {
 		cppcheckProgressIndicator.text = `$(loading~spin) Cppcheck Running ..`;
 		cppcheckProgressIndicator.show();
+        // severityOption.hide();
 	} else {
 		cppcheckProgressIndicator.hide();
+        // severityOption.show();
 	}
+}
+
+function updateMinSeverityOption(): void {
+    const mode = vscode.workspace.getConfiguration('cppcheck-official').get<string>('minSeverity', 'info');
+    severityOption.text = `$(gear) Cppcheck severity: ${mode}`;
+    severityOption.tooltip = 'Select minimum level of warning severity for cppcheck analysis';
+    severityOption.show();
 }
 
 function getDocumentSha1(document: vscode.TextDocument): string {
@@ -191,9 +201,68 @@ export async function activate(context: vscode.ExtensionContext) {
         )
     );
 
+    context.subscriptions.push(
+        vscode.commands.registerCommand(
+            "cppcheck-official.selectMinSeverity",
+            async () => {
+                const current = vscode.workspace
+                    .getConfiguration("cppcheck-official")
+                    .get<string>("minSeverity", "info");
+
+                const selection = await vscode.window.showQuickPick(
+                    [
+                        {
+                            label: "Info",
+                            description: current === "info" ? "Cppcheck analysis minimum level: Info" : "",
+                            value: "info"
+                        },
+                        {
+                            label: "Warning",
+                            description: current === "warning" ? "Cppcheck analysis minimum level: Warning" : "",
+                            value: "warning"
+                        },
+                        {
+                            label: "Error",
+                            description: current === "error" ? "Cppcheck analysis minimum level: Error" : "",
+                            value: "error"
+                        }
+                    ],
+                    {
+                        title: "Select Mode"
+                    }
+                );
+                if (!selection) {
+                    return;
+                }
+
+                await vscode.workspace
+                    .getConfiguration("cppcheck-official")
+                    .update(
+                        "minSeverity",
+                        selection.value,
+                        vscode.ConfigurationTarget.Workspace
+                    );
+
+                updateMinSeverityOption();
+            }
+        )
+    );
+
     // ProgressIndicator status bar item to show when checks are running
 	cppcheckProgressIndicator = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 10);
 	context.subscriptions.push(cppcheckProgressIndicator);
+
+    // Severity option status bar item
+    severityOption = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 10);
+    severityOption.command = "cppcheck-official.selectMinSeverity";
+    context.subscriptions.push(
+        vscode.workspace.onDidChangeConfiguration(event => {
+            if (event.affectsConfiguration("cppcheck-official.selectMinSeverity")) {
+                updateMinSeverityOption();
+            }
+        })
+    );
+    updateMinSeverityOption();
 
     function clearDiagnosticForDoc(doc: vscode.TextDocument): void {
         // Any file who was warnings generated from (and only from) the closed doc have their diagnostics cleared
