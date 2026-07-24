@@ -132,13 +132,14 @@ export async function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(
         vscode.commands.registerCommand(
             "cppcheck-official.suppressWarningAll",
-            async (warningType : String) => {
+            async (diagnosticCode : string) => {
                 if (cppcheckProjectFileUri) {
-                    const success = await writeSuppressionToProjectFile(cppcheckProjectFileUri, warningType);
+                    const success = await writeSuppressionToProjectFile(cppcheckProjectFileUri, diagnosticCode);
                     if (success) {
-                        vscode.window.showInformationMessage(`Suppression of ${warningType} added to project file ${cppcheckProjectFileUri.toString()}`);
+                        vscode.window.showInformationMessage(`Suppression of ${diagnosticCode} added to project file ${cppcheckProjectFileUri.toString()}`);
+                        await vscode.commands.executeCommand('cppcheck-official.hideWarningType', diagnosticCode);
                     } else {
-                        vscode.window.showErrorMessage(`Failed to add suppression of ${warningType} to project file ${cppcheckProjectFileUri.toString()}`);
+                        vscode.window.showErrorMessage(`Failed to add suppression of ${diagnosticCode} to project file ${cppcheckProjectFileUri.toString()}`);
                     }
                 } else {
                     vscode.window.showInformationMessage(`Adding suppression is currently only supported for .cppcheck project files`);
@@ -154,7 +155,11 @@ export async function activate(context: vscode.ExtensionContext) {
             async (uri : vscode.Uri, diagnosticCode : string, range : vscode.Range) => {
                 const diagnostics = diagnosticCollection.get(uri);
                 const filteredDiagnostics = diagnostics?.filter((diagnostic : vscode.Diagnostic) => {
-                    if (diagnostic.code === diagnosticCode && diagnostic.range.isEqual(range)) {
+                    var code = diagnostic.code;
+                    if (typeof(code) === "object" && typeof(code) !== null) {
+                        code = code.value;
+                    }
+                    if (code === diagnosticCode && diagnostic.range.isEqual(range)) {
                         return false;
                     }
                     return true;
@@ -171,7 +176,11 @@ export async function activate(context: vscode.ExtensionContext) {
             async (diagnosticCode : string) => {
                 diagnosticCollection.forEach((uri : vscode.Uri, diagnostics : readonly vscode.Diagnostic[], collection : vscode.DiagnosticCollection) => {
                     const filteredDiagnostics = diagnostics?.filter((diagnostic : vscode.Diagnostic) => {
-                        if (diagnostic.code === diagnosticCode) {
+                        var code = diagnostic.code;
+                        if (typeof(code) === "object" && typeof(code) !== null) {
+                            code = code.value;
+                        }
+                        if (code === diagnosticCode) {
                             return false;
                         }
                         return true;

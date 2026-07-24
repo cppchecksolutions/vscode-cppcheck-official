@@ -37,6 +37,13 @@ export class CodeActionProvider implements vscode.CodeActionProvider {
                 `${indent}// cppcheck-suppress ${diagnosticCode}\n`
             );
             suppressAction.edit = suppressLineEdit;
+
+            // For inline suppression we also hide the warning so user does not have to rerun analysis for it to disappear
+            suppressAction.command = {
+                command: "cppcheck-official.hideWarning",
+                title: "Hide warning",
+                arguments: [document.uri, diagnosticCode, diagnostic.range]
+            };
             suppressAction.diagnostics = [diagnostic];
             actions.push(suppressAction);
 
