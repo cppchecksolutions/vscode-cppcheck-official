@@ -18,7 +18,7 @@ export class CodeActionProvider implements vscode.CodeActionProvider {
             
             // Set up one action for suppressing the specific warning on the line targeted by the diagnostic
             const suppressAction = new vscode.CodeAction(
-                `Suppress warning for ${diagnosticCode} here`,
+                `Suppress this ${diagnosticCode} warning`,
                 vscode.CodeActionKind.QuickFix
             );
 
@@ -40,7 +40,7 @@ export class CodeActionProvider implements vscode.CodeActionProvider {
             suppressAction.diagnostics = [diagnostic];
             actions.push(suppressAction);
 
-            // Set up one action for suppressing warning of a given type universally
+            // Set up an action for suppressing warning of a given type universally
             const suppressTypeAction = new vscode.CodeAction(
                 `Suppress warning type ${diagnosticCode} universally`,
                 vscode.CodeActionKind.QuickFix
@@ -54,6 +54,36 @@ export class CodeActionProvider implements vscode.CodeActionProvider {
 
             suppressTypeAction.diagnostics = [diagnostic];
             actions.push(suppressTypeAction);
+        
+            // Set up an action for hiding a warning
+            const hideAction = new vscode.CodeAction(
+                `Hide this ${diagnosticCode} warning`,
+                vscode.CodeActionKind.QuickFix
+            );
+
+            hideAction.command = {
+                command: "cppcheck-official.hideWarning",
+                title: "Hide warning",
+                arguments: [document.uri, diagnosticCode, diagnostic.range]
+            };
+
+            hideAction.diagnostics = [diagnostic];
+            actions.push(hideAction);
+
+            // Set up an action for hiding all warnings of a given type
+            const hideTypeAction = new vscode.CodeAction(
+                `Hide all ${diagnosticCode} warnings`,
+                vscode.CodeActionKind.QuickFix
+            );
+
+            hideTypeAction.command = {
+                command: "cppcheck-official.hideWarningType",
+                title: "Hide warning type",
+                arguments: [diagnosticCode]
+            };
+
+            hideTypeAction.diagnostics = [diagnostic];
+            actions.push(hideTypeAction);
         }
 
         return actions;

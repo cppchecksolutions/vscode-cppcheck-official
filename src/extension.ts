@@ -97,7 +97,11 @@ function getDocumentSha1(document: vscode.TextDocument): string {
 
 // This method is called when your extension is activated.
 // Your extension is activated the very first time the command is executed.
-export async function activate(context: vscode.ExtensionContext) {
+export async function activate(context: vscode.ExtensionContext) {    
+    // Create a diagnostic collection.
+    const diagnosticCollection = vscode.languages.createDiagnosticCollection("Cppcheck");
+    context.subscriptions.push(diagnosticCollection);
+
     // Set up code actions provider
     context.subscriptions.push(
         vscode.languages.registerCodeActionsProvider(
@@ -130,7 +134,6 @@ export async function activate(context: vscode.ExtensionContext) {
             "cppcheck-official.suppressWarningAll",
             async (warningType : String) => {
                 if (cppcheckProjectFileUri) {
-                    console.log('writeSuppressionToProjectFile');
                     const success = await writeSuppressionToProjectFile(cppcheckProjectFileUri, warningType);
                     if (success) {
                         vscode.window.showInformationMessage(`Suppression of ${warningType} added to project file ${cppcheckProjectFileUri.toString()}`);
@@ -144,13 +147,44 @@ export async function activate(context: vscode.ExtensionContext) {
         )
     );
 
+    // Register a command for hiding a warning
+    context.subscriptions.push(
+        vscode.commands.registerCommand(
+            "cppcheck-official.hideWarning",
+            async (uri : vscode.Uri, diagnosticCode : string, range : vscode.Range) => {
+                const diagnostics = diagnosticCollection.get(uri);
+                const filteredDiagnostics = diagnostics?.filter((diagnostic : vscode.Diagnostic) => {
+                    if (diagnostic.code === diagnosticCode && diagnostic.range.isEqual(range)) {
+                        return false;
+                    }
+                    return true;
+                });
+                diagnosticCollection.set(uri, filteredDiagnostics);
+            }
+        )
+    );
+
+    // Register a command for hiding all warnings of a given type
+    context.subscriptions.push(
+        vscode.commands.registerCommand(
+            "cppcheck-official.hideWarningType",
+            async (diagnosticCode : string) => {
+                diagnosticCollection.forEach((uri : vscode.Uri, diagnostics : readonly vscode.Diagnostic[], collection : vscode.DiagnosticCollection) => {
+                    const filteredDiagnostics = diagnostics?.filter((diagnostic : vscode.Diagnostic) => {
+                        if (diagnostic.code === diagnosticCode) {
+                            return false;
+                        }
+                        return true;
+                    });
+                    collection.set(uri, filteredDiagnostics);
+                });
+            }
+        )
+    );
+
     // ProgressIndicator status bar item to show when checks are running
 	cppcheckProgressIndicator = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 10);
 	context.subscriptions.push(cppcheckProgressIndicator);
-
-    // Create a diagnostic collection.
-    const diagnosticCollection = vscode.languages.createDiagnosticCollection("Cppcheck");
-    context.subscriptions.push(diagnosticCollection);
 
     function clearDiagnosticForDoc(doc: vscode.TextDocument): void {
         // Any file who was warnings generated from (and only from) the closed doc have their diagnostics cleared
