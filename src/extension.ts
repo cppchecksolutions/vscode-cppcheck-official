@@ -84,10 +84,11 @@ function updateProgressIndicator(): void {
 	if (checksRunning) {
 		cppcheckProgressIndicator.text = `$(loading~spin) Cppcheck Running ..`;
 		cppcheckProgressIndicator.show();
-        // severityOption.hide();
+        // To avoid crowding status bar we alternate between progress indicator and severity option item
+        severityOption.hide();
 	} else {
 		cppcheckProgressIndicator.hide();
-        // severityOption.show();
+        severityOption.show();
 	}
 }
 
