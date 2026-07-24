@@ -18,7 +18,7 @@ export class CodeActionProvider implements vscode.CodeActionProvider {
             
             // Set up one action for suppressing the specific warning on the line targeted by the diagnostic
             const suppressAction = new vscode.CodeAction(
-                `Suppress this ${diagnosticCode} warning`,
+                `Add comment that suppresses this ${diagnosticCode} warning`,
                 vscode.CodeActionKind.QuickFix
             );
 
@@ -42,7 +42,7 @@ export class CodeActionProvider implements vscode.CodeActionProvider {
 
             // Set up an action for suppressing warning of a given type universally
             const suppressTypeAction = new vscode.CodeAction(
-                `Suppress warning type ${diagnosticCode} universally`,
+                `Suppress warning type ${diagnosticCode} universally (in project file)`,
                 vscode.CodeActionKind.QuickFix
             );
 
