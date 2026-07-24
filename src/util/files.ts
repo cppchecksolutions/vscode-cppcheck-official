@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 
-export async function writeSuppressionToProjectFile(projectFileUri : vscode.Uri, warningType : String) {
+export async function writeSuppressionToProjectFile(projectFileUri : vscode.Uri, warningType : String) : Promise<boolean> {
     const fileType = projectFileUri.toString().split('.')[1];
     if (fileType !== 'cppcheck') {
         throw new Error(`Function writeSuppressionToProjectFile only supports writing to .cppcheck project files! Recieved file is of type .${fileType}`);
@@ -20,9 +20,9 @@ export async function writeSuppressionToProjectFile(projectFileUri : vscode.Uri,
         const closeIndex = text.indexOf("</suppressions>");
         
         // Determine indentation and construct the new suppression line
-        const line = document.lineAt(document.positionAt(closeIndex).line - 1);
-        const indentation = line.text.match(/^\s*/)?.[0] ?? "    ";
-        const newSuppressionLine = `\n${indentation}<suppression id="${warningType}"/>\n`;
+        const endOfSuppressionsBlockLine = document.lineAt(document.positionAt(closeIndex).line);
+        const indentation = endOfSuppressionsBlockLine.text.match(/^\s*/)?.[0] ?? "    ";
+        const newSuppressionLine = `${indentation}<suppression>${warningType}</suppression>\n${indentation}`;
 
         // We splice in the new line just before the end of the suppressions block
         textToInsert = newSuppressionLine;
@@ -34,22 +34,22 @@ export async function writeSuppressionToProjectFile(projectFileUri : vscode.Uri,
         // Determine indentation and construct the new suppressions block
         const line = document.lineAt(document.positionAt(closeIndex).line - 1);
         const indentation = line.text.match(/^\s*/)?.[0] ?? "    ";
-        const suppressionsBlock =
-            `\n${indentation}<suppressions>
-            ${indentation}    <suppression id="${warningType}"/>
-            ${indentation}</suppressions>\n`;
+        const suppressionsBlock = `${indentation}<suppressions>\n${indentation}    <suppression>${warningType}</suppression>\n${indentation}</suppressions>\n`;
 
         // Splice in the new suppressions block just before the end of the project-file
         textToInsert = suppressionsBlock;
         positionToInsertAt = closeIndex;
     }
 
-    // Write file
+    // Apply edit to document
     edit.insert(
         document.uri,
         document.positionAt(positionToInsertAt),
         textToInsert
     );
-
-    await vscode.workspace.applyEdit(edit);
+    const success = await vscode.workspace.applyEdit(edit);
+    
+    // Write file
+    await document.save();
+    return success;
 }
