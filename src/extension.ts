@@ -466,7 +466,8 @@ async function runCppcheckOnFileXML(
     let usingProjectFile = false;
     cppcheckProjectFileUri = undefined;
 
-    const args = [
+    // Cast to Set and back to array to filter out duplicate arguments
+    const args = [...new Set([
         '--enable=all',
         '--inline-suppr',
         '--xml',
@@ -474,7 +475,7 @@ async function runCppcheckOnFileXML(
         '--suppress=missingInclude',
         '--suppress=missingIncludeSystem',
         ...argsParsed,
-    ].filter(Boolean);
+    ])].filter(Boolean);
 
     if (processedArgs.includes("--project=")) {
         usingProjectFile = true;
