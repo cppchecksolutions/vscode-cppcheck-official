@@ -10,13 +10,13 @@ export async function parseSuppressionsFromProjectFile(projectFileUri: vscode.Ur
     const document = await vscode.workspace.openTextDocument(projectFileUri);
     const text = document.getText();
 
+    // Parse suppression lines and map to an array of error codes, e.g. ['unusedFunction', 'missingInclude']
     const match = /<suppressions\b[^>]*>([\s\S]*?)<\/suppressions>/m.exec(text);
     if (!match) {
         return [];
     } else {
            const suppressionsRegex = /<suppression\b[^>]*>([\s\S]*?)<\/suppression>/gm;
            const suppressions = match[0].matchAll(suppressionsRegex);
-           console.log('suppressions', suppressions);
            if (!suppressions) {
             return [];
            }
