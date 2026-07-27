@@ -80,6 +80,18 @@ function parseMinSeverity(str: string): SeverityNumber {
     }
 }
 
+function filterOutDiagnosticsBelowSeverityLevel(diagnosticCollection : vscode.DiagnosticCollection, severity : vscode.DiagnosticSeverity) {
+    diagnosticCollection.forEach((uri : vscode.Uri, diagnostics : readonly vscode.Diagnostic[], collection: vscode.DiagnosticCollection) => {
+        const filteredDiagnostics = diagnostics?.filter((diagnostic : vscode.Diagnostic) => {
+            if (severityToNumber(diagnostic.severity) < severityToNumber(severity)) {
+                return false;
+            }
+            return true;
+        });
+        collection.set(uri, filteredDiagnostics);
+    });
+}
+
 function updateProgressIndicator(): void {
 	if (checksRunning) {
 		cppcheckProgressIndicator.text = `$(loading~spin) Cppcheck Running ..`;
@@ -243,6 +255,9 @@ export async function activate(context: vscode.ExtensionContext) {
                         selection.value,
                         vscode.ConfigurationTarget.Workspace
                     );
+                    
+                // Clear diagnostics below severity level selected from the problems tab
+                filterOutDiagnosticsBelowSeverityLevel(diagnosticCollection, parseSeverity(selection.value));
 
                 updateMinSeverityOption();
             }
