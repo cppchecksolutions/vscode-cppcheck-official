@@ -3,7 +3,7 @@ import * as vscode from 'vscode';
 export async function parseSuppressionsFromProjectFile(projectFileUri: vscode.Uri) : Promise<String[]> {
     const fileType = projectFileUri.toString().split('.')[1];
     if (fileType !== 'cppcheck') {
-        throw new Error(`Function writeSuppressionToProjectFile only supports writing to .cppcheck project files! Recieved file is of type .${fileType}`);
+        throw new Error(`Function parseSuppressionsFromProjectFile only supports parsing .cppcheck project files! Recieved file is of type .${fileType}`);
     }    
     
     // Open project file with vscode workspace API
