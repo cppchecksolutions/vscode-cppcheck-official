@@ -8,7 +8,7 @@ import { runCommand } from './util/scripts';
 import { looksLikePath, resolvePath, findWorkspaceRoot } from './util/path';
 import { diagnosticsUnion } from './util/diagnostics';
 import { CodeActionProvider } from './util/codeActions';
-import { writeSuppressionToProjectFile } from './util/files';
+import { parseSuppressionsFromProjectFile, writeSuppressionToProjectFile } from './util/files';
 
 // To keep track of document changes we save hashed versions of their content to this record
 let documentHashMemory : Record<string, string> = {};
@@ -255,7 +255,7 @@ export async function activate(context: vscode.ExtensionContext) {
                         selection.value,
                         vscode.ConfigurationTarget.Workspace
                     );
-                    
+
                 // Clear diagnostics below severity level selected from the problems tab
                 filterOutDiagnosticsBelowSeverityLevel(diagnosticCollection, parseSeverity(selection.value));
 
@@ -470,6 +470,9 @@ async function runCppcheckOnFileXML(
         '--enable=all',
         '--inline-suppr',
         '--xml',
+        '--suppress=unusedFunction',
+        '--suppress=missingInclude',
+        '--suppress=missingIncludeSystem',
         ...argsParsed,
     ].filter(Boolean);
 
@@ -481,12 +484,16 @@ async function runCppcheckOnFileXML(
         var projectFileType = projectFilePath.split('.')[1];
         if (projectFileType.toLowerCase() === 'cppcheck') {
             cppcheckProjectFileUri = vscode.Uri.file(projectFilePath);
+            // Duplicate suppressions returns an error from cppcheck, so for ease of use we filter these out
+            const projectFileSuppressions = await parseSuppressionsFromProjectFile(cppcheckProjectFileUri);
+            for (const projectFileSuppression of projectFileSuppressions) {
+                const duplicateSuppressionIndex = args.findIndex((a) => a === `--suppress=${projectFileSuppression}`);
+                if (duplicateSuppressionIndex !== -1) {
+                    args.splice(duplicateSuppressionIndex, 1);
+                }
+            }
         }
     } else {
-        args.push(
-        '--suppress=unusedFunction',
-        '--suppress=missingInclude',
-        '--suppress=missingIncludeSystem');
         args.push(filePath);
     }
 

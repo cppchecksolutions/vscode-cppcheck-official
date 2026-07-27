@@ -1,5 +1,29 @@
 import * as vscode from 'vscode';
 
+export async function parseSuppressionsFromProjectFile(projectFileUri: vscode.Uri) : Promise<String[]> {
+    const fileType = projectFileUri.toString().split('.')[1];
+    if (fileType !== 'cppcheck') {
+        throw new Error(`Function writeSuppressionToProjectFile only supports writing to .cppcheck project files! Recieved file is of type .${fileType}`);
+    }    
+    
+    // Open project file with vscode workspace API
+    const document = await vscode.workspace.openTextDocument(projectFileUri);
+    const text = document.getText();
+
+    const match = /<suppressions\b[^>]*>([\s\S]*?)<\/suppressions>/m.exec(text);
+    if (!match) {
+        return [];
+    } else {
+           const suppressionsRegex = /<suppression\b[^>]*>([\s\S]*?)<\/suppression>/gm;
+           const suppressions = match[0].matchAll(suppressionsRegex);
+           console.log('suppressions', suppressions);
+           if (!suppressions) {
+            return [];
+           }
+           return [...suppressions].map(m => m[1]);         
+    }
+}
+
 export async function writeSuppressionToProjectFile(projectFileUri : vscode.Uri, warningType : String) : Promise<boolean> {
     const fileType = projectFileUri.toString().split('.')[1];
     if (fileType !== 'cppcheck') {
