@@ -255,6 +255,9 @@ export async function activate(context: vscode.ExtensionContext) {
                         selection.value,
                         vscode.ConfigurationTarget.Workspace
                     );
+                    
+                // Clear diagnostics below severity level selected from the problems tab
+                filterOutDiagnosticsBelowSeverityLevel(diagnosticCollection, parseSeverity(selection.value));
 
                 // Clear diagnostics below severity level selected from the problems tab
                 filterOutDiagnosticsBelowSeverityLevel(diagnosticCollection, parseSeverity(selection.value));
