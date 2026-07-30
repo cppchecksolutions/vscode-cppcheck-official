@@ -64,7 +64,7 @@ export class CodeActionProvider implements vscode.CodeActionProvider {
 
             // Set up an action for suppressing warning based on file or symbol name
             const suppressAdvancedAction = new vscode.CodeAction(
-                `Suppress warning ${diagnosticCode} (options)`,
+                `Suppress warning ${diagnosticCode} based on file and/or symbol`,
                 vscode.CodeActionKind.QuickFix
             );
             
