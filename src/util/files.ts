@@ -16,10 +16,10 @@ export async function writeSuppressionToProjectFile(projectFileUri : vscode.Uri,
     // If file or symbolName is specified we set up that part of the suppression block
     let options = '';
     if (file) {
-        options = `\nfile=${file}\n`;
+        options = ` file="${file}"`;
     }
     if (symbolName) {
-        options += `\nsymbol=${symbolName}\n`;
+        options += ` symbolName="${symbolName}"`;
     }
 
     // Search for suppressions section
