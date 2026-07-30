@@ -1,5 +1,25 @@
 import * as vscode from 'vscode';
 
+export async function guessSymbolName(doc : vscode.TextDocument, diagnostic : vscode.Diagnostic) : Promise<string> {
+    const lineNumber = diagnostic.range.start.line;
+    console.log('lineNumber', lineNumber);
+    const line = doc.lineAt(lineNumber);
+    console.log('line', line);
+    const functionRegex = /^\s*(?:[\w:<>,~*&]+\s+)+([A-Za-z_]\w*(?:::[A-Za-z_]\w*)*)\s*\(/;
+    const variableRegex = /^\s*(?:[\w:<>,~*&]+\s+)+([A-Za-z_]\w*)\s*(?:=|;|\[)/;
+    const potentialFunctionName = functionRegex.exec(line.text);
+    const potentialVariableName = variableRegex.exec(line.text);
+    console.log('potentialFunctionNames', potentialFunctionName);
+    console.log('potentialVariableNames', potentialVariableName);
+    if (potentialFunctionName?.[1]) {
+        return potentialFunctionName[1];
+    }
+    if (potentialVariableName?.[1]) {
+        return potentialVariableName[1];
+    }
+    return '';
+}
+
 export function diagnosticsUnion(diagnosticsA : vscode.Diagnostic[], diagnosticB : vscode.Diagnostic[]) : vscode.Diagnostic[] {
     const diagnosticsUnion = new Array<vscode.Diagnostic>;
     // Add all elements from diagnosticsA to result array

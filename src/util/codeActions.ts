@@ -61,6 +61,21 @@ export class CodeActionProvider implements vscode.CodeActionProvider {
 
             suppressTypeAction.diagnostics = [diagnostic];
             actions.push(suppressTypeAction);
+
+            // Set up an action for suppressing warning of a given type universally
+            const suppressAdvancedAction = new vscode.CodeAction(
+                `Suppress warning ${diagnosticCode} (options)`,
+                vscode.CodeActionKind.QuickFix
+            );
+
+            suppressAdvancedAction.command = {
+                command: "cppcheck-official.suppressWarningAdvanced",
+                title: "Suppress warning advanced",
+                arguments: [diagnosticCode, document, diagnostic]
+            };
+
+            suppressAdvancedAction.diagnostics = [diagnostic];
+            actions.push(suppressAdvancedAction);
         
             // Set up an action for hiding a warning
             const hideAction = new vscode.CodeAction(

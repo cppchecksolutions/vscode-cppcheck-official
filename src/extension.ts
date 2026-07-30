@@ -6,7 +6,7 @@ import * as crypto from 'crypto';
 import { documentationLinkMap, getPremiumCertLink } from './util/documentation';
 import { runCommand } from './util/scripts';
 import { looksLikePath, resolvePath, findWorkspaceRoot } from './util/path';
-import { diagnosticsUnion } from './util/diagnostics';
+import { guessSymbolName, diagnosticsUnion } from './util/diagnostics';
 import { CodeActionProvider } from './util/codeActions';
 import { writeSuppressionToProjectFile } from './util/files';
 
@@ -155,9 +155,9 @@ export async function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(
         vscode.commands.registerCommand(
             "cppcheck-official.suppressWarningAll",
-            async (diagnosticCode : string) => {
+            async (diagnosticCode : string, file? : string, symbolName? : string) => {
                 if (cppcheckProjectFileUri) {
-                    const success = await writeSuppressionToProjectFile(cppcheckProjectFileUri, diagnosticCode);
+                    const success = await writeSuppressionToProjectFile(cppcheckProjectFileUri, diagnosticCode, file, symbolName);
                     if (success) {
                         vscode.window.showInformationMessage(`Suppression of ${diagnosticCode} added to project file ${cppcheckProjectFileUri.toString()}`);
                         await vscode.commands.executeCommand('cppcheck-official.hideWarningType', diagnosticCode);
@@ -210,6 +210,45 @@ export async function activate(context: vscode.ExtensionContext) {
                     });
                     collection.set(uri, filteredDiagnostics);
                 });
+            }
+        )
+    );
+
+    context.subscriptions.push(
+        vscode.commands.registerCommand(
+            "cppcheck-official.suppressWarningAdvanced",
+            async (diagnosticCode : string, doc : vscode.TextDocument, diagnostic : vscode.Diagnostic) => {
+                const scope = await vscode.window.showQuickPick(
+                    [
+                        "Global",
+                        "File",
+                        "Symbol"
+                    ],
+                    {
+                        title: "Create Cppcheck Suppression"
+                    }
+                );
+                if (!scope) {
+                    return;
+                }
+                if (scope === 'Global') {
+                    await vscode.commands.executeCommand('cppcheck-official.suppressWarningAll', diagnosticCode);
+                } else if (scope === 'File') {
+                    const file = doc.fileName;
+                    await vscode.commands.executeCommand('cppcheck-official.suppressWarningAll', diagnosticCode, file);
+                } else if (scope === 'Symbol') {
+                    const guessedSymbolName = await guessSymbolName(doc, diagnostic);
+                    const symbolName = await vscode.window.showInputBox({
+                        title: 'Cppcheck Suppression',
+                        prompt: 'Enter a symbol name',
+                        placeHolder: guessedSymbolName,
+                        ignoreFocusOut: true
+                    });
+                    if (!symbolName) {
+                        return;
+                    }
+                    await vscode.commands.executeCommand('cppcheck-official.suppressWarningAll', diagnosticCode, null, symbolName);
+                }
             }
         )
     );
