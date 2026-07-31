@@ -242,14 +242,22 @@ export async function activate(context: vscode.ExtensionContext) {
                         title: "Create Cppcheck Suppression by file and / or symbol (1/2)"
                     }
                 );
+                // User presses ESC -> file === undefined
+                if (file === undefined) {
+                    return;
+                }
 
                 const guessedSymbolName = await guessSymbolName(doc, diagnostic);
                 const symbolName = await vscode.window.showInputBox({
                     title: 'Create Cppcheck Suppression by file and / or symbol (2/2)',
-                    prompt: 'Enter a symbol name (or leave empty to ignore symbol name filter)',
+                    prompt: 'Enter a symbol name, or leave empty to ignore symbol name filter',
                     value: guessedSymbolName,
                     ignoreFocusOut: true
                 });
+                // User presses ESC -> symbolName === undefined
+                if (symbolName === undefined) {
+                    return;
+                }
                 await vscode.commands.executeCommand('cppcheck-official.suppressWarningAll', diagnosticCode, file?.value, symbolName);
             }
         )
