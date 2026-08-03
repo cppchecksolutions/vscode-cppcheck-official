@@ -231,25 +231,16 @@ export async function activate(context: vscode.ExtensionContext) {
             async (diagnosticCode : string, doc : vscode.TextDocument, diagnostic : vscode.Diagnostic) => {
                 const storedSymbolName = diagnosticMetadataStore.get(diagnostic)?.symbolName;
                 const symbolExistsForDiagnostic = !!storedSymbolName;
-                const file = await vscode.window.showQuickPick(
-                    [
-                        {
-                            label: `File: ${doc.fileName}`,
-                            value: doc.fileName
-                        },
-                        {
-                            label: symbolExistsForDiagnostic ? 'Not file specific' : 'Exit',
-                            value: symbolExistsForDiagnostic ? null : undefined
-                        },
-                    ],
+                const file = await vscode.window.showInputBox(
                     {
+                        value: doc.fileName,
                         title: symbolExistsForDiagnostic 
-                        ? "Create Cppcheck Suppression by file and / or symbol (1/2)"
+                        ? "Create Cppcheck Suppression by file and / or symbol (leave blank to skip file filter) (1/2)"
                         : "Create Cppcheck Suppression by file"
                     }
                 );
                 // User presses ESC -> file === undefined
-                if (file === undefined || file?.value === undefined) {
+                if (file === undefined) {
                     return;
                 }
                 let symbolName = null;
@@ -274,7 +265,7 @@ export async function activate(context: vscode.ExtensionContext) {
                         return;
                     }
                 }
-                await vscode.commands.executeCommand('cppcheck-official.suppressWarningAll', diagnosticCode, file?.value, symbolName?.value);
+                await vscode.commands.executeCommand('cppcheck-official.suppressWarningAll', diagnosticCode, file, symbolName?.value);
             }
         )
     );
