@@ -1,6 +1,9 @@
 import * as vscode from 'vscode';
-
+import { DiagnosticMetadataStore } from './diagnostics';
 export class CodeActionProvider implements vscode.CodeActionProvider {
+    constructor(
+        private readonly metadataStore: DiagnosticMetadataStore
+    ) {}
     provideCodeActions(
         document: vscode.TextDocument,
         range: vscode.Range,
@@ -63,8 +66,11 @@ export class CodeActionProvider implements vscode.CodeActionProvider {
             actions.push(suppressTypeAction);
 
             // Set up an action for suppressing warning based on file or symbol name
+            const symbol = this.metadataStore.get(diagnostic)?.symbolName;
             const suppressAdvancedAction = new vscode.CodeAction(
-                `Suppress warning ${diagnosticCode} based on file and/or symbol`,
+                symbol
+                ? `Suppress warning ${diagnosticCode} based on file and / or symbol`
+                :`Suppress warning ${diagnosticCode} based on file`,
                 vscode.CodeActionKind.QuickFix
             );
             

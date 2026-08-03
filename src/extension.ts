@@ -6,7 +6,7 @@ import * as crypto from 'crypto';
 import { documentationLinkMap, getPremiumCertLink } from './util/documentation';
 import { runCommand } from './util/scripts';
 import { looksLikePath, resolvePath, findWorkspaceRoot } from './util/path';
-import { diagnosticsUnion } from './util/diagnostics';
+import { DiagnosticMetadataStore, diagnosticsUnion } from './util/diagnostics';
 import { CodeActionProvider } from './util/codeActions';
 import { writeSuppressionToProjectFile } from './util/files';
 
@@ -14,8 +14,8 @@ import { writeSuppressionToProjectFile } from './util/files';
 let documentHashMemory : Record<string, string> = {};
 // To keep track of warnings for files created from analysis of other files we save their relations to fileRelationMap
 let fileRelationMap: Record<string, Set<string>> = {};
-// Some diagnostics have symbol names associated with them, which we keep track of
-const diagnosticAssociatedSymbols = new WeakMap<vscode.Diagnostic, string>();
+// Some diagnostics have symbol names associated with them, which we keep track of in diagnosticMetadataStore
+const diagnosticMetadataStore = new DiagnosticMetadataStore();
 
 let previewAnalysisTimer: NodeJS.Timeout | undefined;
 let previewedDocument: vscode.TextDocument | undefined;
@@ -131,7 +131,7 @@ export async function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(
         vscode.languages.registerCodeActionsProvider(
             { pattern: "**/*" },
-            new CodeActionProvider(),
+            new CodeActionProvider(diagnosticMetadataStore),
             {
                 providedCodeActionKinds: [
                     vscode.CodeActionKind.QuickFix
@@ -229,6 +229,8 @@ export async function activate(context: vscode.ExtensionContext) {
         vscode.commands.registerCommand(
             "cppcheck-official.suppressWarningAdvanced",
             async (diagnosticCode : string, doc : vscode.TextDocument, diagnostic : vscode.Diagnostic) => {
+                const storedSymbolName = diagnosticMetadataStore.get(diagnostic)?.symbolName;
+                const symbolExistsForDiagnostic = !!storedSymbolName;
                 const file = await vscode.window.showQuickPick(
                     [
                         {
@@ -236,31 +238,43 @@ export async function activate(context: vscode.ExtensionContext) {
                             value: doc.fileName
                         },
                         {
-                            label: 'Not file specific',
-                            value: null
+                            label: symbolExistsForDiagnostic ? 'Not file specific' : 'Exit',
+                            value: symbolExistsForDiagnostic ? null : undefined
                         },
                     ],
                     {
-                        title: "Create Cppcheck Suppression by file and / or symbol (1/2)"
+                        title: symbolExistsForDiagnostic 
+                        ? "Create Cppcheck Suppression by file and / or symbol (1/2)"
+                        : "Create Cppcheck Suppression by file"
                     }
                 );
                 // User presses ESC -> file === undefined
-                if (file === undefined) {
+                if (file === undefined || file?.value === undefined) {
                     return;
                 }
-
-                const storedSymbolName = diagnosticAssociatedSymbols.get(diagnostic);
-                const symbolName = await vscode.window.showInputBox({
-                    title: 'Create Cppcheck Suppression by file and / or symbol (2/2)',
-                    prompt: 'Enter a symbol name, or leave empty to ignore symbol name filter',
-                    value: storedSymbolName,
-                    ignoreFocusOut: true
-                });
-                // User presses ESC -> symbolName === undefined
-                if (symbolName === undefined) {
-                    return;
+                let symbolName = null;
+                if (symbolExistsForDiagnostic) {
+                    symbolName = await vscode.window.showQuickPick(
+                        [
+                            {
+                                label: `Symbol: ${storedSymbolName}`,
+                                value: storedSymbolName
+                            },
+                            {
+                                label: 'Not symbol specific',
+                                value: null
+                            },
+                        ],
+                        {
+                            title: "Create Cppcheck Suppression by file and / or symbol (2/2)"
+                        }
+                    );
+                    // User presses ESC -> symbolName === undefined
+                    if (symbolName === undefined) {
+                        return;
+                    }
                 }
-                await vscode.commands.executeCommand('cppcheck-official.suppressWarningAll', diagnosticCode, file?.value, symbolName);
+                await vscode.commands.executeCommand('cppcheck-official.suppressWarningAll', diagnosticCode, file?.value, symbolName?.value);
             }
         )
     );
@@ -632,7 +646,7 @@ async function runCppcheckOnFileXML(
 
                 // If warning has a symbol we keep track of it
                 if (e.symbol?.[0]) {
-                    diagnosticAssociatedSymbols.set(diagnostic, e.symbol?.[0]);
+                    diagnosticMetadataStore.set(diagnostic, {symbolName: e.symbol?.[0]});
                 }
 
                 // Related Information
