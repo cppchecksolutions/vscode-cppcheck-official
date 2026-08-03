@@ -6,7 +6,7 @@ import * as crypto from 'crypto';
 import { documentationLinkMap, getPremiumCertLink } from './util/documentation';
 import { runCommand } from './util/scripts';
 import { looksLikePath, resolvePath, findWorkspaceRoot } from './util/path';
-import { guessSymbolName, diagnosticsUnion } from './util/diagnostics';
+import { diagnosticsUnion } from './util/diagnostics';
 import { CodeActionProvider } from './util/codeActions';
 import { writeSuppressionToProjectFile } from './util/files';
 
@@ -14,6 +14,8 @@ import { writeSuppressionToProjectFile } from './util/files';
 let documentHashMemory : Record<string, string> = {};
 // To keep track of warnings for files created from analysis of other files we save their relations to fileRelationMap
 let fileRelationMap: Record<string, Set<string>> = {};
+// Some diagnostics have symbol names associated with them, which we keep track of
+const diagnosticAssociatedSymbols = new WeakMap<vscode.Diagnostic, string>();
 
 let previewAnalysisTimer: NodeJS.Timeout | undefined;
 let previewedDocument: vscode.TextDocument | undefined;
@@ -247,11 +249,11 @@ export async function activate(context: vscode.ExtensionContext) {
                     return;
                 }
 
-                const guessedSymbolName = await guessSymbolName(doc, diagnostic);
+                const storedSymbolName = diagnosticAssociatedSymbols.get(diagnostic);
                 const symbolName = await vscode.window.showInputBox({
                     title: 'Create Cppcheck Suppression by file and / or symbol (2/2)',
                     prompt: 'Enter a symbol name, or leave empty to ignore symbol name filter',
-                    value: guessedSymbolName,
+                    value: storedSymbolName,
                     ignoreFocusOut: true
                 });
                 // User presses ESC -> symbolName === undefined
@@ -627,6 +629,11 @@ async function runCppcheckOnFileXML(
                     value: e.$.id,
                     target: vscode.Uri.parse(getPremiumCertLink(e.$.id))
                 } : e.$.id;
+
+                // If warning has a symbol we keep track of it
+                if (e.symbol?.[0]) {
+                    diagnosticAssociatedSymbols.set(diagnostic, e.symbol?.[0]);
+                }
 
                 // Related Information
                 const relatedInfos: vscode.DiagnosticRelatedInformation[] = [];
