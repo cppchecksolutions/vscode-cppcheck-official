@@ -1,6 +1,9 @@
 import * as vscode from 'vscode';
-
+import { DiagnosticMetadataStore } from './diagnostics';
 export class CodeActionProvider implements vscode.CodeActionProvider {
+    constructor(
+        private readonly metadataStore: DiagnosticMetadataStore
+    ) {}
     provideCodeActions(
         document: vscode.TextDocument,
         range: vscode.Range,
@@ -61,7 +64,25 @@ export class CodeActionProvider implements vscode.CodeActionProvider {
 
             suppressTypeAction.diagnostics = [diagnostic];
             actions.push(suppressTypeAction);
-        
+
+            // Set up an action for suppressing warning based on file or symbol name
+            const symbol = this.metadataStore.get(diagnostic)?.symbolName;
+            const suppressAdvancedAction = new vscode.CodeAction(
+                symbol
+                ? `Suppress warning ${diagnosticCode} based on file and / or symbol`
+                :`Suppress warning ${diagnosticCode} based on file`,
+                vscode.CodeActionKind.QuickFix
+            );
+            
+            suppressAdvancedAction.command = {
+                command: "cppcheck-official.suppressWarningAdvanced",
+                title: "Suppress warning advanced",
+                arguments: [diagnosticCode, document, diagnostic]
+            };
+
+            suppressAdvancedAction.diagnostics = [diagnostic];
+            actions.push(suppressAdvancedAction);
+
             // Set up an action for hiding a warning
             const hideAction = new vscode.CodeAction(
                 `Hide this ${diagnosticCode} warning`,
