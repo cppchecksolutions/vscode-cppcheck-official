@@ -14,6 +14,11 @@ export class CodeActionProvider implements vscode.CodeActionProvider {
         const actions: vscode.CodeAction[] = [];
 
         for (const diagnostic of context.diagnostics) {
+            // Only provide these code actions for cppcheck errors
+            if (diagnostic.source !== 'cppcheck') {
+                continue;
+            }
+
             var diagnosticCode = diagnostic.code;
             if (typeof(diagnosticCode) === "object" && typeof(diagnosticCode) !== null) {
                 diagnosticCode = diagnosticCode.value;
