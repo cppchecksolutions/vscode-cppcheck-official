@@ -8,7 +8,7 @@ import { runCommand } from './util/scripts';
 import { looksLikePath, resolvePath, findWorkspaceRoot } from './util/path';
 import { DiagnosticMetadataStore, diagnosticsUnion } from './util/diagnostics';
 import { CodeActionProvider } from './util/codeActions';
-import { writeSuppressionToProjectFile } from './util/files';
+import { ProjectFileStore, writeSuppressionToProjectFile } from './util/files';
 
 // To keep track of document changes we save hashed versions of their content to this record
 let documentHashMemory : Record<string, string> = {};
@@ -16,13 +16,14 @@ let documentHashMemory : Record<string, string> = {};
 let fileRelationMap: Record<string, Set<string>> = {};
 // Some diagnostics have symbol names associated with them, which we keep track of in diagnosticMetadataStore
 const diagnosticMetadataStore = new DiagnosticMetadataStore();
+// The ProjectFileStore is usd to keep track of the users project file through different context
+const projectFileStore = new ProjectFileStore();
 
 let previewAnalysisTimer: NodeJS.Timeout | undefined;
 let previewedDocument: vscode.TextDocument | undefined;
 let cppcheckProgressIndicator: vscode.StatusBarItem;
 let severityOption: vscode.StatusBarItem;
 let checksRunning = false;
-let cppcheckProjectFileUri: vscode.Uri | undefined;
 
 enum SeverityNumber {
     Info = 0,
@@ -131,7 +132,7 @@ export async function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(
         vscode.languages.registerCodeActionsProvider(
             { pattern: "**/*" },
-            new CodeActionProvider(diagnosticMetadataStore),
+            new CodeActionProvider(diagnosticMetadataStore, projectFileStore),
             {
                 providedCodeActionKinds: [
                     vscode.CodeActionKind.QuickFix
@@ -158,14 +159,15 @@ export async function activate(context: vscode.ExtensionContext) {
         vscode.commands.registerCommand(
             "cppcheck-official.suppressWarningAll",
             async (diagnosticCode : string, file? : string, symbolName? : string) => {
-                if (cppcheckProjectFileUri) {
-                    const success = await writeSuppressionToProjectFile(cppcheckProjectFileUri, diagnosticCode, file, symbolName);
+                const projectFileUri = projectFileStore.getUri();
+                if (projectFileUri) {
+                    const success = await writeSuppressionToProjectFile(projectFileUri, diagnosticCode, file, symbolName);
                     if (success) {
                         // Construct information message to display to the user
                         const fileMessagePart = file ? ` for file ${file}` : ''; 
                         const symbolNameMessagePart = symbolName ? ` for symbol name ${symbolName}` : '';
                         const fileOrSymbolExtraMessage = file || symbolName ? '. Note: you have to re-analyze the file for the suppression to take effect.' : '';
-                        const completeInformationMessageText = `Suppression of ${diagnosticCode} added to project file ${cppcheckProjectFileUri.toString()}${fileMessagePart}${symbolNameMessagePart}${fileOrSymbolExtraMessage}`;
+                        const completeInformationMessageText = `Suppression of ${diagnosticCode} added to project file ${projectFileStore.getUri()?.toString()}${fileMessagePart}${symbolNameMessagePart}${fileOrSymbolExtraMessage}`;
                         vscode.window.showInformationMessage(completeInformationMessageText);
                         
                         // Only hide warnings if suppression is global, since hide command does not support file or symbol filter for now
@@ -173,7 +175,7 @@ export async function activate(context: vscode.ExtensionContext) {
                             await vscode.commands.executeCommand('cppcheck-official.hideWarningType', diagnosticCode);
                         }
                     } else {
-                        vscode.window.showErrorMessage(`Failed to add suppression of ${diagnosticCode} to project file ${cppcheckProjectFileUri.toString()}`);
+                        vscode.window.showErrorMessage(`Failed to add suppression of ${diagnosticCode} to project file ${projectFileStore.getUri()?.toString()}`);
                     }
                 } else {
                     vscode.window.showInformationMessage(`Adding suppression is currently only supported for .cppcheck project files`);
@@ -520,7 +522,7 @@ async function runCppcheckOnFileXML(
     });
 
     let usingProjectFile = false;
-    cppcheckProjectFileUri = undefined;
+    projectFileStore.clear();
 
     const args = [
         '--enable=all',
@@ -536,7 +538,7 @@ async function runCppcheckOnFileXML(
         var projectFilePath = processedArgs.split('--project=')[1].split(' ')[0];
         var projectFileType = projectFilePath.split('.')[1];
         if (projectFileType.toLowerCase() === 'cppcheck') {
-            cppcheckProjectFileUri = vscode.Uri.file(projectFilePath);
+            projectFileStore.setUri(vscode.Uri.file(projectFilePath));
         }
     } else {
         args.push(
