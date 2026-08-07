@@ -1,5 +1,30 @@
 import * as vscode from 'vscode';
 
+export class ProjectFileStore {
+    private projectFileUri : vscode.Uri | undefined;
+
+    setUri(newProjectFileUri: vscode.Uri) {
+        this.projectFileUri = newProjectFileUri;
+    }
+
+    getUri() {
+        return this.projectFileUri;
+    }
+
+    hasCppcheckProjectFile() {
+        const uri = this.getUri();
+        if (!uri) {
+            return false;
+        }
+        var projectFileType = uri.path.split('.')[1];
+        return projectFileType.toLowerCase() === 'cppcheck'; 
+    }
+
+    clear() {
+        this.projectFileUri = undefined;
+    }
+}
+
 export async function writeSuppressionToProjectFile(projectFileUri : vscode.Uri, warningType : String, file? : String, symbolName? : String) : Promise<boolean> {
     const fileType = projectFileUri.toString().split('.')[1];
     if (fileType !== 'cppcheck') {
