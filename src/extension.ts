@@ -160,7 +160,7 @@ export async function activate(context: vscode.ExtensionContext) {
             "cppcheck-official.suppressWarningAll",
             async (diagnosticCode : string, file? : string, symbolName? : string) => {
                 const projectFileUri = projectFileStore.getUri();
-                if (projectFileUri) {
+                if (projectFileUri && projectFileStore.hasCppcheckProjectFile()) {
                     const success = await writeSuppressionToProjectFile(projectFileUri, diagnosticCode, file, symbolName);
                     if (success) {
                         // Construct information message to display to the user
@@ -178,7 +178,7 @@ export async function activate(context: vscode.ExtensionContext) {
                         vscode.window.showErrorMessage(`Failed to add suppression of ${diagnosticCode} to project file ${projectFileStore.getUri()?.toString()}`);
                     }
                 } else {
-                    vscode.window.showInformationMessage(`Adding suppression is currently only supported for .cppcheck project files`);
+                    throw new Error(`Cppcheck Official error: Command 'cppcheck-official.suppressWarningAll' for project file level suppression called without project file present!`);
                 }
             }
         )
@@ -534,12 +534,8 @@ async function runCppcheckOnFileXML(
     if (processedArgs.includes("--project=")) {
         usingProjectFile = true;
         args.push(`--file-filter=${filePath}`);
-        // If project file is of type .cppcheck we keep track of it
         var projectFilePath = processedArgs.split('--project=')[1].split(' ')[0];
-        var projectFileType = projectFilePath.split('.')[1];
-        if (projectFileType.toLowerCase() === 'cppcheck') {
-            projectFileStore.setUri(vscode.Uri.file(projectFilePath));
-        }
+        projectFileStore.setUri(vscode.Uri.file(projectFilePath));
     } else {
         args.push(
         '--suppress=unusedFunction',

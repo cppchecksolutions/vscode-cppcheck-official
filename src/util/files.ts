@@ -11,6 +11,15 @@ export class ProjectFileStore {
         return this.projectFileUri;
     }
 
+    hasCppcheckProjectFile() {
+        const uri = this.getUri();
+        if (!uri) {
+            return false;
+        }
+        var projectFileType = uri.path.split('.')[1];
+        return projectFileType.toLowerCase() === 'cppcheck'; 
+    }
+
     clear() {
         this.projectFileUri = undefined;
     }
