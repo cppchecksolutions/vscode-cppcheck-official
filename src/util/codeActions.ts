@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { DiagnosticMetadataStore } from './diagnostics';
+import { DiagnosticMetadataStore, filterDiagnosticsDuplicatesForLine } from './diagnostics';
 import { ProjectFileStore } from './files';
 export class CodeActionProvider implements vscode.CodeActionProvider {
     constructor(
@@ -15,7 +15,10 @@ export class CodeActionProvider implements vscode.CodeActionProvider {
 
         const actions: vscode.CodeAction[] = [];
 
-        for (const diagnostic of context.diagnostics) {
+        // If same warning exists more than once on a given line we don't want duplicated code actions
+        const diagnostics = filterDiagnosticsDuplicatesForLine(context.diagnostics);
+
+        for (const diagnostic of diagnostics) {
             // Only provide these code actions for cppcheck errors
             if (diagnostic.source !== 'cppcheck') {
                 continue;
