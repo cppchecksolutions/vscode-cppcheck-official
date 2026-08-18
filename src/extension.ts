@@ -634,9 +634,11 @@ async function runCppcheckOnFileXML(
                 } : e.$.id;
 
                 // If warning has a symbol we keep track of it
-                if (e.symbol?.[0]) {
-                    diagnosticMetadataStore.set(diagnostic, {symbolName: e.symbol?.[0]});
-                }
+                const symbolName = e.symbol?.[0] ?? '';
+                // Save line of code at main location if we can access it
+                const mainLocLine = mainLocDocument?.lineAt(line)?.text ?? '';
+                
+                diagnosticMetadataStore.set(diagnostic, {symbolName, mainLocLine});
 
                 // Related Information
                 const relatedInfos: vscode.DiagnosticRelatedInformation[] = [];
