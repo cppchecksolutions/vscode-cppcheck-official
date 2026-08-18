@@ -24,6 +24,15 @@ export class CodeActionProvider implements vscode.CodeActionProvider {
                 continue;
             }
 
+            const mainLocLineNumber = diagnostic.range.start.line;
+            const lineText = document.lineAt(mainLocLineNumber).text;
+            const expectedLineText = this.metadataStore.get(diagnostic)?.mainLocLine;
+
+            // If document has been edited so that diagnostic no longer refers to the correct line we don't provide code actions
+            if (lineText !== expectedLineText) {
+                continue;
+            }
+
             var diagnosticCode = diagnostic.code;
             if (typeof(diagnosticCode) === "object" && typeof(diagnosticCode) !== null) {
                 diagnosticCode = diagnosticCode.value;
@@ -36,7 +45,6 @@ export class CodeActionProvider implements vscode.CodeActionProvider {
             );
 
             // Copy indentation from line affected by diagnostic
-            const lineText = document.lineAt(diagnostic.range.start.line).text;
             const indent = lineText.match(/^\s*/)?.[0] ?? "";
             
             // Insert suppression comment above affected line
