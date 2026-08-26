@@ -114,11 +114,11 @@ export async function activate(context: vscode.ExtensionContext) {
     const diagnosticCollection = vscode.languages.createDiagnosticCollection("Cppcheck");
     context.subscriptions.push(diagnosticCollection);
     
-    // Create a map for storing all diagnostics, including hidden / filtered diagnostics
-    const uriDiagnosticsMap = new Map<vscode.Uri, vscode.Diagnostic[]>();
+    // Create a map for storing all diagnostics, including hidden / filtered diagnostics. Key is file uri as a string
+    const uriDiagnosticsMap = new Map<string, vscode.Diagnostic[]>();
 
     function filterDisplayedDiagnosticsBasedOnHiddenStatus() {
-        uriDiagnosticsMap.forEach((diagnostics : vscode.Diagnostic[], uri : vscode.Uri) => {
+        uriDiagnosticsMap.forEach((diagnostics : vscode.Diagnostic[], uri : string) => {
             const filteredDiagnostics = diagnostics?.filter((diagnostic : vscode.Diagnostic) => {
                 var metadata = diagnosticMetadataStore.get(diagnostic);
                 if (metadata?.hidden) {
@@ -126,7 +126,7 @@ export async function activate(context: vscode.ExtensionContext) {
                 }
                 return true;
             });
-            diagnosticCollection.set(uri, filteredDiagnostics);
+            diagnosticCollection.set(vscode.Uri.parse(uri), filteredDiagnostics);
         });
     }
 
@@ -204,7 +204,7 @@ export async function activate(context: vscode.ExtensionContext) {
         vscode.commands.registerCommand(
             "cppcheck-official.hideWarning",
             async (uri : vscode.Uri, diagnosticCode : string, range : vscode.Range) => {
-                const diagnostics = uriDiagnosticsMap.get(uri);
+                const diagnostics = uriDiagnosticsMap.get(uri.toString());
                 diagnostics?.forEach((diagnostic : vscode.Diagnostic) => {
                     var code = diagnostic.code;
                     if (typeof(code) === "object" && typeof(code) !== null) {
@@ -359,8 +359,9 @@ export async function activate(context: vscode.ExtensionContext) {
         for (const fileUri of Object.keys(fileRelationMap)) {
             if (fileRelationMap[fileUri].has(doc.uri.toString())) {
                 if (fileRelationMap[fileUri].size <= 1) {
-                    diagnosticCollection.delete(vscode.Uri.parse(fileUri));
+                    uriDiagnosticsMap.delete(fileUri);
                     fileRelationMap[fileUri].clear();
+                    filterDisplayedDiagnosticsBasedOnHiddenStatus();
                 } else {
                     fileRelationMap[fileUri].delete(doc.uri.toString());
                 }
@@ -511,13 +512,13 @@ async function runCppcheckOnFileXML(
     document: vscode.TextDocument,
     commandPath: string,
     processedArgs: string,
-    uriDiagnosticsMap: Map<vscode.Uri, vscode.Diagnostic[]>,
+    uriDiagnosticsMap: Map<string, vscode.Diagnostic[]>,
 ): Promise<void> {
     checksRunning = true;
     updateProgressIndicator();
 
     // Clear existing diagnostics for this file
-    uriDiagnosticsMap.delete(document.uri);
+    uriDiagnosticsMap.delete(document.uri.toString());
 
     // Replace backslashes (used in paths in Windows environment)
     const filePath = document.fileName.replaceAll('\\', '/');
@@ -724,11 +725,11 @@ async function runCppcheckOnFileXML(
             for (const uri of Object.keys(diagnostics)) {
                 var newDiagnostics = diagnostics[uri];
                 // If file has existing diagnostics from analyzing other files we do not want to overwrite those
-                const existingDiagnostics = uriDiagnosticsMap.get(vscode.Uri.parse(uri));
+                const existingDiagnostics = uriDiagnosticsMap.get(uri);
                 if (existingDiagnostics) {
                     newDiagnostics = diagnosticsUnion(newDiagnostics, existingDiagnostics.flat());
                 }
-                uriDiagnosticsMap.set(vscode.Uri.parse(uri), newDiagnostics);
+                uriDiagnosticsMap.set(uri, newDiagnostics);
                 if (fileRelationMap[uri] === null ||fileRelationMap[uri] === undefined) {
                     fileRelationMap[uri] = new Set;
                 }
