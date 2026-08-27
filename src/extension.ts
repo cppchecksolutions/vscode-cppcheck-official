@@ -443,7 +443,8 @@ export async function activate(context: vscode.ExtensionContext) {
 
         // Diagnostics from analysis are stored in DiagnosticCollectionAll, the displayed diagnostic collection
         // is diagnosticCollection, which is set by the filter function filterDisplayedDiagnosticsBasedOnHiddenStatus()
-        filterDisplayedDiagnosticsBasedOnHiddenStatus();
+        const minSevString = config.get<string>("cppcheck-official.minSeverity", "info");
+        hideDiagnosticsBasedOnSeverityLevel(parseSeverity(minSevString));
     }
 
     // Listen for file saves.
@@ -567,182 +568,186 @@ async function runCppcheckOnFileXML(
         cwd,
     });
 
-    // if spawn fails (e.g. ENOENT or permission denied)
-    proc.on("error", (err) => {
-        console.error("Failed to start cppcheck:", err);
-        vscode.window.showErrorMessage(`Cppcheck failed to start: ${err.message}`);
-    });
+    await new Promise<void>((resolve, reject) => {
+        // if spawn fails (e.g. ENOENT or permission denied)
+        proc.on("error", (err) => {
+            console.error("Failed to start cppcheck:", err);
+            vscode.window.showErrorMessage(`Cppcheck failed to start: ${err.message}`);
+            reject(err);
+        });
 
-    let xmlOutput = "";
-    let out = "";
-    proc.stderr.on("data", d => xmlOutput += d.toString());
-    proc.stdout.on("data", d => out += d.toString());
-    proc.on("close", code => {
-        if (code && code > 0) {
-            // Non-zero code means an error has occured
-            let errorMessage = `Cppcheck failed with code ${code} (unknown error)`;
-            if (out.trim().length > 0) {
-                errorMessage = out.trim();
+        let xmlOutput = "";
+        let out = "";
+        proc.stderr.on("data", d => xmlOutput += d.toString());
+        proc.stdout.on("data", d => out += d.toString());
+        proc.on("close", code => {
+            if (code && code > 0) {
+                // Non-zero code means an error has occured
+                let errorMessage = `Cppcheck failed with code ${code} (unknown error)`;
+                if (out.trim().length > 0) {
+                    errorMessage = out.trim();
+                }
+                errorMessage = `${errorMessage}, Command: ${commandPath} ${args.join(' ')}`;
+                vscode.window.showErrorMessage(errorMessage);
             }
-            errorMessage = `${errorMessage}, Command: ${commandPath} ${args.join(' ')}`;
-            vscode.window.showErrorMessage(errorMessage);
-        }
-        const parser = new xml2js.Parser({ explicitArray: true });
-        parser.parseString(xmlOutput, async (err, result) => {
-            if (err) {
-                console.error("XML parse error:", err);
-                return;
-            }
-
-            const errors = result.results?.errors?.[0]?.error || [];
-            const diagnostics: Record<string, vscode.Diagnostic[]> = {};
-            for (const e of errors) {
-                const isCriticalError = criticalWarningTypes.includes(e.$.id);
-                const locations = e.location || [];
-                if (!locations.length) {
-                    continue;
+            const parser = new xml2js.Parser({ explicitArray: true });
+            parser.parseString(xmlOutput, async (err, result) => {
+                if (err) {
+                    console.error("XML parse error:", err);
+                    return;
                 }
 
-                const mainLoc = locations[locations.length - 1].$;
-                // If main location is not current file, we are not using a project file and warning is not critical then skip displaying warning
-                if (!isCriticalError && usingProjectFile && !filePath.endsWith(mainLoc.file)) {
-                    continue;
-                }
-
-                let mainLocDocument : vscode.TextDocument | undefined;
-                try {
-                    mainLocDocument = await vscode.workspace.openTextDocument(mainLoc.file);
-                } catch {
-                    // do nothing
-                }
-
-                // Cppcheck line number is 1-indexed, while VS Code uses 0-indexing
-                let line = Number(mainLoc.line) - 1;
-                // Invalid line number usually means non-analysis output 
-                if (isNaN(line) || line < 0 || line >= document.lineCount) {
-                    if (isCriticalError) {
-                        line = 0;
-                    } else {
-                        continue;
-                    }
-                }
-
-                // Cppcheck col number is 1-indexed, while VS Code uses 0-indexing
-                let col = Number(mainLoc.column) - 1;
-                if (isNaN(col) || col < 0 || !mainLocDocument || col > mainLocDocument.lineAt(line).text.length) {
-                    col = 0;
-                }
-
-                const severity = parseSeverity(e.$.severity);
-                if (!isCriticalError && severityToNumber(severity) < minSevNum) {
-                    continue;
-                }
-
-                const range = new vscode.Range(line, col, line, mainLocDocument ? mainLocDocument.lineAt(line).text.length : col);
-                const diagnostic = new vscode.Diagnostic(range, e.$.msg, severity);
-                diagnostic.source = "cppcheck";
-                // If we have a link to documentation, include it
-                diagnostic.code = documentationLinkMap[e.$.id] ? {
-                    value: e.$.id,
-                    target: vscode.Uri.parse(documentationLinkMap[e.$.id])
-                } : getPremiumCertLink(e.$.id) ? {
-                    value: e.$.id,
-                    target: vscode.Uri.parse(getPremiumCertLink(e.$.id))
-                } : e.$.id;
-
-                // If warning has a symbol we keep track of it
-                const symbolName = e.symbol?.[0] ?? '';
-                // Save line of code at main location if we can access it
-                const mainLocLine = mainLocDocument?.lineAt(line)?.text ?? '';
-                
-                diagnosticMetadataStore.set(diagnostic, { symbolName, mainLocLine, hidden: false });
-
-                // Related Information
-                const relatedInfos: vscode.DiagnosticRelatedInformation[] = [];
-                for (let i = 1; i <= locations.length; i++) {
-                    // Related information is ordered in reverse in XML object
-                    const loc = locations[locations.length - i].$;
-                    const msg = loc.info;
-                    const lLine = Number(loc.line) - 1;
-                    const lCol = Number(loc.col) - 1;
-
-                    if (msg === null || msg === undefined || isNaN(lLine) || lLine < 0 || lLine >= document.lineCount) {
+                const errors = result.results?.errors?.[0]?.error || [];
+                const diagnostics: Record<string, vscode.Diagnostic[]> = {};
+                for (const e of errors) {
+                    const isCriticalError = criticalWarningTypes.includes(e.$.id);
+                    const locations = e.location || [];
+                    if (!locations.length) {
                         continue;
                     }
 
-                    var relatedDocument : vscode.TextDocument | undefined;
+                    const mainLoc = locations[locations.length - 1].$;
+                    // If main location is not current file, we are not using a project file and warning is not critical then skip displaying warning
+                    if (!isCriticalError && usingProjectFile && !filePath.endsWith(mainLoc.file)) {
+                        continue;
+                    }
+
+                    let mainLocDocument : vscode.TextDocument | undefined;
                     try {
-                        relatedDocument = await vscode.workspace.openTextDocument(loc.file);
+                        mainLocDocument = await vscode.workspace.openTextDocument(mainLoc.file);
                     } catch {
-                        // Do nothing
+                        // do nothing
                     }
-                    const relatedRange = new vscode.Range(
-                        lLine, lCol,
-                        lLine, relatedDocument ? relatedDocument.lineAt(lLine).text.length : lCol
-                    );
-                    relatedInfos.push(
-                        new vscode.DiagnosticRelatedInformation(
-                            new vscode.Location(relatedDocument ? relatedDocument.uri : vscode.Uri.file(''), relatedRange),
-                            msg
-                        )
-                    );
-                }
-                if (relatedInfos.length > 0) {
-                    diagnostic.relatedInformation = relatedInfos;
-                }
-                const diagnosticFile = mainLoc.file;
-                var diagnosticFileIsOpenDocument = diagnosticFile === document.fileName;
-                if (!diagnosticFile.includes('/')) {
-                    // If we do not have file path but only name we asume diagnosed file is open document if they share name
-                    if (document.fileName.endsWith(diagnosticFile)) {
-                        diagnosticFileIsOpenDocument = true;
+
+                    // Cppcheck line number is 1-indexed, while VS Code uses 0-indexing
+                    let line = Number(mainLoc.line) - 1;
+                    // Invalid line number usually means non-analysis output 
+                    if (isNaN(line) || line < 0 || line >= document.lineCount) {
+                        if (isCriticalError) {
+                            line = 0;
+                        } else {
+                            continue;
+                        }
                     }
-                }
-                if (diagnosticFileIsOpenDocument) {
-                    const uri = document.uri.toString();
-                    if (diagnostics[uri] === null || diagnostics[uri] === undefined) {
-                        diagnostics[uri] = [];
+
+                    // Cppcheck col number is 1-indexed, while VS Code uses 0-indexing
+                    let col = Number(mainLoc.column) - 1;
+                    if (isNaN(col) || col < 0 || !mainLocDocument || col > mainLocDocument.lineAt(line).text.length) {
+                        col = 0;
                     }
-                    diagnostics[uri].push(diagnostic);
-                } else {
-                    var relatedDocument : vscode.TextDocument | undefined;
-                    try {
-                        relatedDocument = await vscode.workspace.openTextDocument(mainLoc.file);
-                    } catch {
-                        // Do nothing
+
+                    const severity = parseSeverity(e.$.severity);
+                    if (!isCriticalError && severityToNumber(severity) < minSevNum) {
+                        continue;
                     }
-                    if (relatedDocument) {
-                        // Proceed if we are able to open the document
-                        const uri = relatedDocument.uri.toString();
+
+                    const range = new vscode.Range(line, col, line, mainLocDocument ? mainLocDocument.lineAt(line).text.length : col);
+                    const diagnostic = new vscode.Diagnostic(range, e.$.msg, severity);
+                    diagnostic.source = "cppcheck";
+                    // If we have a link to documentation, include it
+                    diagnostic.code = documentationLinkMap[e.$.id] ? {
+                        value: e.$.id,
+                        target: vscode.Uri.parse(documentationLinkMap[e.$.id])
+                    } : getPremiumCertLink(e.$.id) ? {
+                        value: e.$.id,
+                        target: vscode.Uri.parse(getPremiumCertLink(e.$.id))
+                    } : e.$.id;
+
+                    // If warning has a symbol we keep track of it
+                    const symbolName = e.symbol?.[0] ?? '';
+                    // Save line of code at main location if we can access it
+                    const mainLocLine = mainLocDocument?.lineAt(line)?.text ?? '';
+                    
+                    diagnosticMetadataStore.set(diagnostic, { symbolName, mainLocLine, hidden: false });
+
+                    // Related Information
+                    const relatedInfos: vscode.DiagnosticRelatedInformation[] = [];
+                    for (let i = 1; i <= locations.length; i++) {
+                        // Related information is ordered in reverse in XML object
+                        const loc = locations[locations.length - i].$;
+                        const msg = loc.info;
+                        const lLine = Number(loc.line) - 1;
+                        const lCol = Number(loc.col) - 1;
+
+                        if (msg === null || msg === undefined || isNaN(lLine) || lLine < 0 || lLine >= document.lineCount) {
+                            continue;
+                        }
+
+                        var relatedDocument : vscode.TextDocument | undefined;
+                        try {
+                            relatedDocument = await vscode.workspace.openTextDocument(loc.file);
+                        } catch {
+                            // Do nothing
+                        }
+                        const relatedRange = new vscode.Range(
+                            lLine, lCol,
+                            lLine, relatedDocument ? relatedDocument.lineAt(lLine).text.length : lCol
+                        );
+                        relatedInfos.push(
+                            new vscode.DiagnosticRelatedInformation(
+                                new vscode.Location(relatedDocument ? relatedDocument.uri : vscode.Uri.file(''), relatedRange),
+                                msg
+                            )
+                        );
+                    }
+                    if (relatedInfos.length > 0) {
+                        diagnostic.relatedInformation = relatedInfos;
+                    }
+                    const diagnosticFile = mainLoc.file;
+                    var diagnosticFileIsOpenDocument = diagnosticFile === document.fileName;
+                    if (!diagnosticFile.includes('/')) {
+                        // If we do not have file path but only name we asume diagnosed file is open document if they share name
+                        if (document.fileName.endsWith(diagnosticFile)) {
+                            diagnosticFileIsOpenDocument = true;
+                        }
+                    }
+                    if (diagnosticFileIsOpenDocument) {
+                        const uri = document.uri.toString();
                         if (diagnostics[uri] === null || diagnostics[uri] === undefined) {
                             diagnostics[uri] = [];
                         }
                         diagnostics[uri].push(diagnostic);
+                    } else {
+                        var relatedDocument : vscode.TextDocument | undefined;
+                        try {
+                            relatedDocument = await vscode.workspace.openTextDocument(mainLoc.file);
+                        } catch {
+                            // Do nothing
+                        }
+                        if (relatedDocument) {
+                            // Proceed if we are able to open the document
+                            const uri = relatedDocument.uri.toString();
+                            if (diagnostics[uri] === null || diagnostics[uri] === undefined) {
+                                diagnostics[uri] = [];
+                            }
+                            diagnostics[uri].push(diagnostic);
+                        }
                     }
                 }
-            }
-            const sourceDocumentUri = document.uri.toString();
-            for (const uri of Object.keys(diagnostics)) {
-                var newDiagnostics = diagnostics[uri];
-                // If file has existing diagnostics from analyzing other files we do not want to overwrite those
-                const existingDiagnostics = uriDiagnosticsMap.get(uri);
-                if (existingDiagnostics) {
-                    newDiagnostics = diagnosticsUnion(newDiagnostics, existingDiagnostics.flat());
+                const sourceDocumentUri = document.uri.toString();
+                for (const uri of Object.keys(diagnostics)) {
+                    var newDiagnostics = diagnostics[uri];
+                    // If file has existing diagnostics from analyzing other files we do not want to overwrite those
+                    const existingDiagnostics = uriDiagnosticsMap.get(uri);
+                    if (existingDiagnostics) {
+                        newDiagnostics = diagnosticsUnion(newDiagnostics, existingDiagnostics.flat());
+                    }
+                    uriDiagnosticsMap.set(uri, newDiagnostics);
+                    if (fileRelationMap[uri] === null ||fileRelationMap[uri] === undefined) {
+                        fileRelationMap[uri] = new Set;
+                    }
+                    // NOTE: uri can be the same as sourceDocumentUri
+                    fileRelationMap[uri].add(sourceDocumentUri);
                 }
-                uriDiagnosticsMap.set(uri, newDiagnostics);
-                if (fileRelationMap[uri] === null ||fileRelationMap[uri] === undefined) {
-                    fileRelationMap[uri] = new Set;
-                }
-                // NOTE: uri can be the same as sourceDocumentUri
-                fileRelationMap[uri].add(sourceDocumentUri);
+                resolve();
+            });
+
+            // If checks have run without error, save hashed document content to memory
+            if (!code) {
+                const hashedContentOfFile = getDocumentSha1(document);
+                documentHashMemory[document.fileName] = hashedContentOfFile;
             }
         });
-
-        // If checks have run without error, save hashed document content to memory
-        if (!code) {
-            const hashedContentOfFile = getDocumentSha1(document);
-            documentHashMemory[document.fileName] = hashedContentOfFile;
-        }
     });
 
     checksRunning = false;
