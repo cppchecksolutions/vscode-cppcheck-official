@@ -404,7 +404,7 @@ export async function activate(context: vscode.ExtensionContext) {
             }
         })
     );
-    
+
     // Call update function once at setup to set the UI text to the settings current value
     updateMinSeverityOption();
     
@@ -511,7 +511,7 @@ export async function activate(context: vscode.ExtensionContext) {
             processedArgs,
             uriDiagnosticsMap,
         );
-        
+
         // Analysis in runCppcheckOnFileXML populates uriDiagnosticsMap with all warnings, regardless of min severity filter.
         // Thus after running analysis we have to apply the severity filter (this also populates DiagnosticCollection, making the diagnostics visible)
         const minSevString = config.get<string>("cppcheck-official.minSeverity", "info");
