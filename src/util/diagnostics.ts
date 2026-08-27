@@ -3,6 +3,7 @@ import * as vscode from 'vscode';
 interface DiagnosticMetadata {
     symbolName?: string;
     mainLocLine?: string;
+    hidden: boolean;
 }
 
 export class DiagnosticMetadataStore {
