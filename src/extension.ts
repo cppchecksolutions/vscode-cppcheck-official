@@ -244,8 +244,10 @@ export async function activate(context: vscode.ExtensionContext) {
                     }
                     if (code === diagnosticCode && diagnostic.range.isEqual(range)) {
                         setDiagnosticHiddenStatus(diagnostic, true);
+                        setDiagnosticHiddenStatus(diagnostic, true);
                     }
                 });
+                filterDisplayedDiagnosticsBasedOnHiddenStatus();
                 filterDisplayedDiagnosticsBasedOnHiddenStatus();
             }
         )
