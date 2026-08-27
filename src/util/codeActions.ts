@@ -28,6 +28,9 @@ export class CodeActionProvider implements vscode.CodeActionProvider {
             const lineText = document.lineAt(mainLocLineNumber).text;
             const expectedLineText = this.metadataStore.get(diagnostic)?.mainLocLine;
 
+            // Additional locations are stored in the relatedInformation field
+            const multipleLocationWarning = (diagnostic.relatedInformation?.length ?? 0 ) > 0;
+            
             // If document has been edited so that diagnostic no longer refers to the correct line we don't provide code actions
             if (lineText !== expectedLineText) {
                 continue;
@@ -47,26 +50,28 @@ export class CodeActionProvider implements vscode.CodeActionProvider {
             // Copy indentation from line affected by diagnostic
             const indent = lineText.match(/^\s*/)?.[0] ?? "";
             
-            // Insert suppression comment above affected line
-            const suppressLineEdit = new vscode.WorkspaceEdit();
-            suppressLineEdit.insert(
-                document.uri,
-                new vscode.Position(
-                    diagnostic.range.start.line,
-                    0,
-                ),
-                `${indent}// cppcheck-suppress ${diagnosticCode}\n`
-            );
-            suppressAction.edit = suppressLineEdit;
+            if (!multipleLocationWarning) {
+                // Insert suppression comment above affected line
+                const suppressLineEdit = new vscode.WorkspaceEdit();
+                suppressLineEdit.insert(
+                    document.uri,
+                    new vscode.Position(
+                        diagnostic.range.start.line,
+                        0,
+                    ),
+                    `${indent}// cppcheck-suppress ${diagnosticCode}\n`
+                );
+                suppressAction.edit = suppressLineEdit;
 
-            // For inline suppression we also hide the warning so user does not have to rerun analysis for it to disappear
-            suppressAction.command = {
-                command: "cppcheck-official.hideWarning",
-                title: "Hide warning",
-                arguments: [document.uri, diagnosticCode, diagnostic.range]
-            };
-            suppressAction.diagnostics = [diagnostic];
-            actions.push(suppressAction);
+                // For inline suppression we also hide the warning so user does not have to rerun analysis for it to disappear
+                suppressAction.command = {
+                    command: "cppcheck-official.hideWarning",
+                    title: "Hide warning",
+                    arguments: [document.uri, diagnosticCode, diagnostic.range]
+                };
+                suppressAction.diagnostics = [diagnostic];
+                actions.push(suppressAction);
+            }
 
             // Set up an action for hiding a warning
             const hideAction = new vscode.CodeAction(
