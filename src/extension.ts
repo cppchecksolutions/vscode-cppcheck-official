@@ -441,8 +441,8 @@ export async function activate(context: vscode.ExtensionContext) {
             uriDiagnosticsMap,
         );
 
-        // Diagnostics from analysis are stored in DiagnosticCollectionAll, the displayed diagnostic collection
-        // is diagnosticCollection, which is set by the filter function filterDisplayedDiagnosticsBasedOnHiddenStatus()
+        // Analysis in runCppcheckOnFileXML populates uriDiagnosticsMap with all warnings, regardless of min severity filter.
+        // Thus after running analysis we have to apply the severity filter (this also populates DiagnosticCollection, making the diagnostics visible)
         const minSevString = config.get<string>("cppcheck-official.minSeverity", "info");
         hideDiagnosticsBasedOnSeverityLevel(parseSeverity(minSevString));
     }
