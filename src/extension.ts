@@ -14,6 +14,8 @@ import { ProjectFileStore, writeSuppressionToProjectFile } from './util/files';
 let documentHashMemory : Record<string, string> = {};
 // To keep track of warnings for files created from analysis of other files we save their relations to fileRelationMap
 let fileRelationMap: Record<string, Set<string>> = {};
+// To keep track of hidden warning types we save them to the hiddenTypes set
+let hiddenTypes: Set<string> = new Set;
 // Some diagnostics have symbol names associated with them, which we keep track of in diagnosticMetadataStore
 const diagnosticMetadataStore = new DiagnosticMetadataStore();
 // The ProjectFileStore is usd to keep track of the users project file through different context
@@ -23,6 +25,7 @@ let previewAnalysisTimer: NodeJS.Timeout | undefined;
 let previewedDocument: vscode.TextDocument | undefined;
 let cppcheckProgressIndicator: vscode.StatusBarItem;
 let severityOption: vscode.StatusBarItem;
+let hiddenTypesOption: vscode.StatusBarItem;
 let checksRunning = false;
 
 enum SeverityNumber {
@@ -81,6 +84,26 @@ function setDiagnosticHiddenStatus(diagnostic : vscode.Diagnostic, hiddenStatus 
     diagnosticMetadataStore.set(diagnostic, newMetaData);
 }
 
+function applyHiddenTypesFilter(uriDiagnosticsMap : Map<string, vscode.Diagnostic[]>) {
+    hiddenTypes.forEach((warningType) => {
+        setHiddenStatusBasedOnType(uriDiagnosticsMap, warningType, true);
+    });
+}
+
+function setHiddenStatusBasedOnType(uriDiagnosticsMap : Map<string, vscode.Diagnostic[]>, diagnosticCode : string, hidden : boolean) {
+    uriDiagnosticsMap.forEach((diagnostics : readonly vscode.Diagnostic[]) => {
+        diagnostics?.forEach((diagnostic : vscode.Diagnostic) => {
+            var code = diagnostic.code;
+            if (typeof(code) === "object" && typeof(code) !== null) {
+                code = code.value;
+            }
+            if (code === diagnosticCode) {
+                setDiagnosticHiddenStatus(diagnostic, hidden);
+            }
+        });
+    });
+}
+
 function updateProgressIndicator(): void {
 	if (checksRunning) {
 		cppcheckProgressIndicator.text = `$(loading~spin) Cppcheck Running ..`;
@@ -98,6 +121,13 @@ function updateMinSeverityOption(): void {
     severityOption.text = `$(gear) Cppcheck severity: ${mode}`;
     severityOption.tooltip = 'Select minimum level of warning severity for cppcheck analysis';
     severityOption.show();
+}
+
+function updateHiddenWarningTypesOption(): void {
+    const hiddenTypesCount = hiddenTypes.size;
+    hiddenTypesOption.text = `$(bell) Hidden types: ${hiddenTypesCount}`;
+    hiddenTypesOption.tooltip = 'Select minimum level of warning severity for cppcheck analysis';
+    hiddenTypesOption.show();
 }
 
 function getDocumentSha1(document: vscode.TextDocument): string {
@@ -118,6 +148,8 @@ export async function activate(context: vscode.ExtensionContext) {
     const uriDiagnosticsMap = new Map<string, vscode.Diagnostic[]>();
 
     function filterDisplayedDiagnosticsBasedOnHiddenStatus() {
+        // Make sure the hidden types filter has been applied
+        applyHiddenTypesFilter(uriDiagnosticsMap);
         uriDiagnosticsMap.forEach((diagnostics : vscode.Diagnostic[], uri : string) => {
             const filteredDiagnostics = diagnostics?.filter((diagnostic : vscode.Diagnostic) => {
                 var metadata = diagnosticMetadataStore.get(diagnostic);
@@ -224,17 +256,9 @@ export async function activate(context: vscode.ExtensionContext) {
         vscode.commands.registerCommand(
             "cppcheck-official.hideWarningType",
             async (diagnosticCode : string) => {
-                uriDiagnosticsMap.forEach((diagnostics : readonly vscode.Diagnostic[]) => {
-                    diagnostics?.forEach((diagnostic : vscode.Diagnostic) => {
-                        var code = diagnostic.code;
-                        if (typeof(code) === "object" && typeof(code) !== null) {
-                            code = code.value;
-                        }
-                        if (code === diagnosticCode) {
-                            setDiagnosticHiddenStatus(diagnostic, true);
-                        }
-                    });
-                });
+                setHiddenStatusBasedOnType(uriDiagnosticsMap, diagnosticCode, true);
+                hiddenTypes.add(diagnosticCode);
+                updateHiddenWarningTypesOption();
                 filterDisplayedDiagnosticsBasedOnHiddenStatus();
             }
         )
@@ -335,12 +359,41 @@ export async function activate(context: vscode.ExtensionContext) {
         )
     );
 
+    context.subscriptions.push(
+        vscode.commands.registerCommand(
+            "cppcheck-official.revealHiddenTypes",
+            async () => {
+                const currentHiddenTypes = Array.from(hiddenTypes);
+                const selection = await vscode.window.showQuickPick(
+                    currentHiddenTypes.map((type) => {
+                        return {
+                            label: type,
+                            value: type,
+                        };
+                    }),
+                    {
+                        title: "Click to reveal hidden warnings of type"
+                    }
+                );
+                if (!selection) {
+                    return;
+                }
+                
+                hiddenTypes.delete(selection.value);
+                setHiddenStatusBasedOnType(uriDiagnosticsMap, selection.value, false);
+                filterDisplayedDiagnosticsBasedOnHiddenStatus();
+
+                updateHiddenWarningTypesOption();
+            }
+        )
+    );
+
     // ProgressIndicator status bar item to show when checks are running
 	cppcheckProgressIndicator = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 10);
 	context.subscriptions.push(cppcheckProgressIndicator);
 
     // Severity option status bar item
-    severityOption = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 10);
+    severityOption = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 9);
     severityOption.command = "cppcheck-official.selectMinSeverity";
     context.subscriptions.push(
         vscode.workspace.onDidChangeConfiguration(event => {
@@ -349,9 +402,24 @@ export async function activate(context: vscode.ExtensionContext) {
             }
         })
     );
-
+    
     // Call update function once at setup to set the UI text to the settings current value
     updateMinSeverityOption();
+    
+    // Hidden types option status bar item
+    hiddenTypesOption = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 8);
+    hiddenTypesOption.command = "cppcheck-official.revealHiddenTypes";
+    context.subscriptions.push(
+        vscode.workspace.onDidChangeConfiguration(event => {
+            if (event.affectsConfiguration("cppcheck-official.revealHiddenTypes")) {
+                updateHiddenWarningTypesOption();
+            }
+        })
+    );
+    
+    // Call update function once at setup to set the UI text to the settings current value
+    updateHiddenWarningTypesOption();
+
 
     function clearDiagnosticForDoc(doc: vscode.TextDocument): void {
         // Any file who was warnings generated from (and only from) the closed doc have their diagnostics cleared
@@ -441,11 +509,12 @@ export async function activate(context: vscode.ExtensionContext) {
             processedArgs,
             uriDiagnosticsMap,
         );
-
+        
         // Analysis in runCppcheckOnFileXML populates uriDiagnosticsMap with all warnings, regardless of min severity filter.
         // Thus after running analysis we have to apply the severity filter (this also populates DiagnosticCollection, making the diagnostics visible)
         const minSevString = config.get<string>("cppcheck-official.minSeverity", "info");
         hideDiagnosticsBasedOnSeverityLevel(parseSeverity(minSevString));
+        filterDisplayedDiagnosticsBasedOnHiddenStatus();
     }
 
     // Listen for file saves.
