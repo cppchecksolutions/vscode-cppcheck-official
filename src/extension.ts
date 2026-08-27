@@ -360,6 +360,7 @@ export async function activate(context: vscode.ExtensionContext) {
             if (fileRelationMap[fileUri].has(doc.uri.toString())) {
                 if (fileRelationMap[fileUri].size <= 1) {
                     uriDiagnosticsMap.delete(fileUri);
+                    diagnosticCollection.delete(vscode.Uri.parse(fileUri));
                     fileRelationMap[fileUri].clear();
                     filterDisplayedDiagnosticsBasedOnHiddenStatus();
                 } else {
