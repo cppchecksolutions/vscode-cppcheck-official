@@ -126,7 +126,7 @@ function updateMinSeverityOption(): void {
 function updateHiddenWarningTypesOption(): void {
     const hiddenTypesCount = hiddenTypes.size;
     hiddenTypesOption.text = `$(bell) Hidden types: ${hiddenTypesCount}`;
-    hiddenTypesOption.tooltip = 'Select minimum level of warning severity for cppcheck analysis';
+    hiddenTypesOption.tooltip = 'Select hidden warning types to reveal';
     hiddenTypesOption.show();
 }
 
