@@ -47,12 +47,24 @@ export class CodeActionProvider implements vscode.CodeActionProvider {
             // Copy indentation from line affected by diagnostic
             const indent = lineText.match(/^\s*/)?.[0] ?? "";
             
+            var affectedLine = diagnostic.range.start.line;
+            var documentUri = document.uri;
+
+            // Due to a quirk in cppcheck, even though last location for a multiple location warning is considered 'main location',
+            // inline suppression should be added to the 1st location (reversed order in diagnostic relatedInformation)
+            const multipleLocationWarning = (diagnostic.relatedInformation?.length ?? 0 ) > 0;
+            if (multipleLocationWarning && diagnostic?.relatedInformation?.[0]) {
+                const lastLocation = diagnostic?.relatedInformation?.[diagnostic?.relatedInformation?.length - 1].location;
+                documentUri = lastLocation.uri;
+                affectedLine = lastLocation.range.start.line;
+            }
+
             // Insert suppression comment above affected line
             const suppressLineEdit = new vscode.WorkspaceEdit();
             suppressLineEdit.insert(
-                document.uri,
+                documentUri,
                 new vscode.Position(
-                    diagnostic.range.start.line,
+                    affectedLine,
                     0,
                 ),
                 `${indent}// cppcheck-suppress ${diagnosticCode}\n`
