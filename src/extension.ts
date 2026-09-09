@@ -27,6 +27,7 @@ let cppcheckProgressIndicator: vscode.StatusBarItem;
 let severityOption: vscode.StatusBarItem;
 let hiddenTypesOption: vscode.StatusBarItem;
 let checksRunning = false;
+let usesPremiumCppcheck = false;
 
 enum SeverityNumber {
     Info = 0,
@@ -495,7 +496,7 @@ export async function activate(context: vscode.ExtensionContext) {
         }
 
         // Check if cppcheck is available
-        cp.exec(`"${commandPath}" --version`, (error) => {
+        cp.exec(`"${commandPath}" --version`, (error, stdout) => {
             if (error) {
                 vscode.window.showErrorMessage(
                     `Cppcheck: Could not find or run '${commandPath}'. ` +
@@ -503,6 +504,7 @@ export async function activate(context: vscode.ExtensionContext) {
                 );
                 return;
             }
+            usesPremiumCppcheck = stdout.toLowerCase().includes('premium'); 
         });
 
         await runCppcheckOnFileXML(
@@ -620,6 +622,10 @@ async function runCppcheckOnFileXML(
         '--xml',
         ...argsParsed,
     ].filter(Boolean);
+
+    if (usesPremiumCppcheck) {
+        args.push('--premium=safety-off');
+    }
 
     if (processedArgs.includes("--project=")) {
         usingProjectFile = true;
