@@ -26,6 +26,7 @@ let previewedDocument: vscode.TextDocument | undefined;
 let cppcheckProgressIndicator: vscode.StatusBarItem;
 let severityOption: vscode.StatusBarItem;
 let hiddenTypesOption: vscode.StatusBarItem;
+let fullAnalysisStatusBarItem: vscode.StatusBarItem;
 let checksRunning = false;
 let usesPremiumCppcheck = false;
 
@@ -59,6 +60,26 @@ const pathVariableArgs = [
     '--include',
     '--rule-file',
 ];
+
+async function processArguments(args : string) {
+    // If user enter arguments as array we parse them into space separated string format
+    if (args.startsWith("[") && args.endsWith("]")) {
+        args = args.replaceAll("[", "").replaceAll("]", "").replaceAll(",", " ");
+    }
+    
+    var processedArgs = '';
+    // If argument field contains command to run script we do so here
+    if (args.includes('@(')) {
+        const scriptCommand = args.split("@(")[1].split(")")[0];
+        const scriptOutput = await runCommand(scriptCommand);
+        // We expect that the script output that is to be used as arguments will be wrapped with ${}
+        const scriptOutputTrimmed = scriptOutput.split("@(")[1].split(")")[0];
+        processedArgs = args.split("@(")[0] + scriptOutputTrimmed + args.split(")")?.[1];
+    } else {
+        processedArgs = args;
+    }
+    return processedArgs;
+}
 
 function parseSeverity(str: string): vscode.DiagnosticSeverity {
     const lower = str.toLowerCase();
@@ -111,9 +132,11 @@ function updateProgressIndicator(): void {
 		cppcheckProgressIndicator.show();
         // To avoid crowding status bar we alternate between progress indicator and severity option item
         severityOption.hide();
+        fullAnalysisStatusBarItem.hide();
 	} else {
 		cppcheckProgressIndicator.hide();
         severityOption.show();
+        fullAnalysisStatusBarItem.show();
 	}
 }
 
@@ -361,6 +384,69 @@ export async function activate(context: vscode.ExtensionContext) {
             }
         )
     );
+    
+    context.subscriptions.push(
+        vscode.commands.registerCommand(
+            "cppcheck-official.runFullAnalysis",
+            async () => {
+
+                const selection = await vscode.window.showQuickPick(
+                    [
+                        {
+                            label: "1 thread",
+                            description: "No parallel threads",
+                            value: "-j1"
+                        },
+                        {
+                            label: "2 threads",
+                            description: "2 parallel threads",
+                            value: "-j2"
+                        },
+                        {
+                            label: "4 threads",
+                            description: "4 parallel threads",
+                            value: "-j4"
+                        }
+                    ],
+                    {
+                        title: "Select how many threads to run in parallel for full analysis"
+                    }
+                );
+                if (!selection) {
+                    return;
+                }
+
+                const config = vscode.workspace.getConfiguration();
+                const userPath = config.get<string>("cppcheck-official.path")?.trim() || "";
+                const commandPath = userPath ? resolvePath(userPath) : "cppcheck";
+
+                var  args = config.get<string>("cppcheck-official.arguments", "");
+                const processedArgs = await processArguments(args);
+
+                // Check if cppcheck is available
+                cp.exec(`"${commandPath}" --version`, (error, stdout) => {
+                    if (error) {
+                        vscode.window.showErrorMessage(
+                            `Cppcheck: Could not find or run '${commandPath}'. ` +
+                            `Please install cppcheck or set 'cppcheck-official.path' correctly.`
+                        );
+                        return;
+                    }
+                    usesPremiumCppcheck = stdout.toLowerCase().includes('premium'); 
+                });
+
+                console.log('processedArgs', processedArgs);
+
+                // Run
+                await runFullAnalysis(
+                    commandPath,
+                    processedArgs,
+                    uriDiagnosticsMap,
+                    selection.value,
+                );
+            }
+        )
+    );
 
     context.subscriptions.push(
         vscode.commands.registerCommand(
@@ -423,6 +509,12 @@ export async function activate(context: vscode.ExtensionContext) {
     // Call update function once at setup to set the UI text to the settings current value
     updateHiddenWarningTypesOption();
 
+    // Full analysis status bar item
+    fullAnalysisStatusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 8);
+    fullAnalysisStatusBarItem.command = "cppcheck-official.runFullAnalysis";
+    fullAnalysisStatusBarItem.text = `$(play) Full Analysis`;
+    fullAnalysisStatusBarItem.show();
+    context.subscriptions.push(fullAnalysisStatusBarItem);
 
     function clearDiagnosticForDoc(doc: vscode.TextDocument): void {
         // Any file who was warnings generated from (and only from) the closed doc have their diagnostics cleared
@@ -472,22 +564,7 @@ export async function activate(context: vscode.ExtensionContext) {
         const commandPath = userPath ? resolvePath(userPath) : "cppcheck";
 
         var  args = config.get<string>("cppcheck-official.arguments", "");
-        // If user enter arguments as array we parse them into space separated string format
-        if (args.startsWith("[") && args.endsWith("]")) {
-            args = args.replaceAll("[", "").replaceAll("]", "").replaceAll(",", " ");
-        }
-        
-        var processedArgs = '';
-        // If argument field contains command to run script we do so here
-        if (args.includes('@(')) {
-            const scriptCommand = args.split("@(")[1].split(")")[0];
-            const scriptOutput = await runCommand(scriptCommand);
-            // We expect that the script output that is to be used as arguments will be wrapped with ${}
-            const scriptOutputTrimmed = scriptOutput.split("@(")[1].split(")")[0];
-            processedArgs = args.split("@(")[0] + scriptOutputTrimmed + args.split(")")?.[1];
-        } else {
-            processedArgs = args;
-        }
+        const processedArgs = await processArguments(args);
 
         // If disabled, clear any existing diagnostics for this doc.
         if (!isEnabled) {
@@ -825,6 +902,218 @@ async function runCppcheckOnFileXML(
                 const hashedContentOfFile = getDocumentSha1(document);
                 documentHashMemory[document.fileName] = hashedContentOfFile;
             }
+        });
+    });
+
+    checksRunning = false;
+    updateProgressIndicator();
+}
+
+async function runFullAnalysis(
+    commandPath: string,
+    processedArgs: string,
+    uriDiagnosticsMap: Map<string, vscode.Diagnostic[]>,
+    threadsOption: string,
+): Promise<void> {
+    if (!processedArgs.includes("--project=")) {
+        throw new Error("full analysis called without specified project file!");
+    }
+
+    checksRunning = true;
+    updateProgressIndicator();
+
+    // Clear existing diagnostics for all files
+    uriDiagnosticsMap.clear();
+
+    // We always call cppcheck with severity level info, and then filter warnings when displaying them
+    const minSevNum = SeverityNumber.Info;
+
+    // Resolve paths for arguments where applicable
+    const argsParsed = processedArgs.split(" ").map((arg) => {
+        let cleanedArg = arg.replaceAll("\"","");
+        const isPathArgument = pathVariableArgs.some(a => cleanedArg.startsWith(a));
+        // Some arguments such as addon may be either a path or the name of a built in addon
+        if (isPathArgument && looksLikePath(cleanedArg)) {
+            const splitArg = cleanedArg.split('=');
+            return `${splitArg[0]}=${resolvePath(splitArg[1])}`;
+        }
+        return arg;
+    });
+
+    let usingProjectFile = true;
+    var projectFilePath = processedArgs.split('--project=')[1].split(' ')[0];
+    projectFileStore.clear();
+    projectFileStore.setUri(vscode.Uri.file(projectFilePath));
+
+    const args = [
+        '--enable=all',
+        '--inline-suppr',
+        '--xml',
+        threadsOption,
+        ...argsParsed,
+    ].filter(Boolean);
+
+    if (usesPremiumCppcheck) {
+        args.push('--premium=safety-off');
+    }
+
+    let proc;
+    const cwd = findWorkspaceRoot();
+    proc = cp.spawn(commandPath, args, {
+        cwd,
+    });
+
+    await new Promise<void>((resolve, reject) => {
+        // if spawn fails (e.g. ENOENT or permission denied)
+        proc.on("error", (err) => {
+            console.error("Failed to start cppcheck:", err);
+            vscode.window.showErrorMessage(`Cppcheck failed to start: ${err.message}`);
+            reject(err);
+        });
+
+        let xmlOutput = "";
+        let out = "";
+        proc.stderr.on("data", d => xmlOutput += d.toString());
+        proc.stdout.on("data", d => out += d.toString());
+        proc.on("close", code => {
+            if (code && code > 0) {
+                // Non-zero code means an error has occured
+                let errorMessage = `Cppcheck failed with code ${code} (unknown error)`;
+                if (out.trim().length > 0) {
+                    errorMessage = out.trim();
+                }
+                errorMessage = `${errorMessage}, Command: ${commandPath} ${args.join(' ')}`;
+                vscode.window.showErrorMessage(errorMessage);
+            }
+            const parser = new xml2js.Parser({ explicitArray: true });
+            parser.parseString(xmlOutput, async (err, result) => {
+                if (err) {
+                    console.error("XML parse error:", err);
+                    return;
+                }
+
+                const errors = result.results?.errors?.[0]?.error || [];
+                const diagnostics: Record<string, vscode.Diagnostic[]> = {};
+                for (const e of errors) {
+                    const isCriticalError = criticalWarningTypes.includes(e.$.id);
+                    const locations = e.location || [];
+                    if (!locations.length) {
+                        continue;
+                    }
+
+                    const mainLoc = locations[locations.length - 1].$;
+                    // If main location is not current file, we are not using a project file and warning is not critical then skip displaying warning
+                    if (!isCriticalError && usingProjectFile) {
+                        continue;
+                    }
+
+                    let mainLocDocument : vscode.TextDocument | undefined;
+                    try {
+                        mainLocDocument = await vscode.workspace.openTextDocument(mainLoc.file);
+                    } catch {
+                        // do nothing
+                    }
+
+                    // Cppcheck line number is 1-indexed, while VS Code uses 0-indexing
+                    let line = Number(mainLoc.line) - 1;
+                    // Invalid line number usually means non-analysis output 
+                    if (isNaN(line) || line < 0 || (mainLocDocument && line >= mainLocDocument.lineCount)) {
+                        if (isCriticalError) {
+                            line = 0;
+                        } else {
+                            continue;
+                        }
+                    }
+
+                    // Cppcheck col number is 1-indexed, while VS Code uses 0-indexing
+                    let col = Number(mainLoc.column) - 1;
+                    if (isNaN(col) || col < 0 || !mainLocDocument || col > mainLocDocument.lineAt(line).text.length) {
+                        col = 0;
+                    }
+
+                    const severity = parseSeverity(e.$.severity);
+                    if (!isCriticalError && severityToNumber(severity) < minSevNum) {
+                        continue;
+                    }
+
+                    const range = new vscode.Range(line, col, line, mainLocDocument ? mainLocDocument.lineAt(line).text.length : col);
+                    const diagnostic = new vscode.Diagnostic(range, e.$.msg, severity);
+                    diagnostic.source = "cppcheck";
+                    // If we have a link to documentation, include it
+                    diagnostic.code = documentationLinkMap[e.$.id] ? {
+                        value: e.$.id,
+                        target: vscode.Uri.parse(documentationLinkMap[e.$.id])
+                    } : getPremiumCertLink(e.$.id) ? {
+                        value: e.$.id,
+                        target: vscode.Uri.parse(getPremiumCertLink(e.$.id))
+                    } : e.$.id;
+
+                    // If warning has a symbol we keep track of it
+                    const symbolName = e.symbol?.[0] ?? '';
+                    // Save line of code at main location if we can access it
+                    const mainLocLine = mainLocDocument?.lineAt(line)?.text ?? '';
+                    
+                    diagnosticMetadataStore.set(diagnostic, { symbolName, mainLocLine, hidden: false });
+
+                    // Related Information
+                    const relatedInfos: vscode.DiagnosticRelatedInformation[] = [];
+                    for (let i = 1; i <= locations.length; i++) {
+                        // Related information is ordered in reverse in XML object
+                        const loc = locations[locations.length - i].$;
+                        const msg = loc.info;
+                        const lLine = Number(loc.line) - 1;
+                        const lCol = Number(loc.col) - 1;
+
+                        if (msg === null || msg === undefined || isNaN(lLine) || lLine < 0 || (mainLocDocument && lLine >= mainLocDocument.lineCount)) {
+                            continue;
+                        }
+
+                        var relatedDocument : vscode.TextDocument | undefined;
+                        try {
+                            relatedDocument = await vscode.workspace.openTextDocument(loc.file);
+                        } catch {
+                            // Do nothing
+                        }
+                        const relatedRange = new vscode.Range(
+                            lLine, lCol,
+                            lLine, relatedDocument ? relatedDocument.lineAt(lLine).text.length : lCol
+                        );
+                        relatedInfos.push(
+                            new vscode.DiagnosticRelatedInformation(
+                                new vscode.Location(relatedDocument ? relatedDocument.uri : vscode.Uri.file(''), relatedRange),
+                                msg
+                            )
+                        );
+                    }
+                    if (relatedInfos.length > 0) {
+                        diagnostic.relatedInformation = relatedInfos;
+                    }
+                    var relatedDocument : vscode.TextDocument | undefined;
+                    try {
+                        relatedDocument = await vscode.workspace.openTextDocument(mainLoc.file);
+                    } catch {
+                        // Do nothing
+                    }
+                    if (relatedDocument) {
+                        // Proceed if we are able to open the document
+                        const uri = relatedDocument.uri.toString();
+                        if (diagnostics[uri] === null || diagnostics[uri] === undefined) {
+                            diagnostics[uri] = [];
+                        }
+                        diagnostics[uri].push(diagnostic);
+                    }
+                }
+                for (const uri of Object.keys(diagnostics)) {
+                    var newDiagnostics = diagnostics[uri];
+                    // If file has existing diagnostics from analyzing other files we do not want to overwrite those
+                    const existingDiagnostics = uriDiagnosticsMap.get(uri);
+                    if (existingDiagnostics) {
+                        newDiagnostics = diagnosticsUnion(newDiagnostics, existingDiagnostics.flat());
+                    }
+                    uriDiagnosticsMap.set(uri, newDiagnostics);
+                }
+                resolve();
+            });
         });
     });
 
