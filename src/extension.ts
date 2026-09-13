@@ -176,6 +176,12 @@ function getDocumentSha1(document: vscode.TextDocument): string {
         .digest('hex');
 }
 
+function clearFileRelationMap() {
+    for (const fileUri of Object.keys(fileRelationMap)) {
+        fileRelationMap[fileUri].clear;
+    }
+}
+
 // This method is called when your extension is activated.
 // Your extension is activated the very first time the command is executed.
 export async function activate(context: vscode.ExtensionContext) {    
@@ -873,6 +879,9 @@ async function runFullAnalysis(
 
     // Clear existing diagnostics for all files
     uriDiagnosticsMap.clear();
+
+    // Clear file relation map when we run full analysis
+    clearFileRelationMap();
 
     // We always call cppcheck with severity level info, and then filter warnings when displaying them
     const minSevNum = SeverityNumber.Info;
