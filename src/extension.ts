@@ -5,10 +5,11 @@ import * as crypto from 'crypto';
 
 import { documentationLinkMap, getPremiumCertLink } from './util/documentation';
 import { runCommand } from './util/scripts';
-import { looksLikePath, resolvePath, findWorkspaceRoot } from './util/path';
+import { looksLikePath, resolvePath, findWorkspaceRoot, splitArgsAndResolvePaths } from './util/path';
 import { DiagnosticMetadataStore, diagnosticsUnion } from './util/diagnostics';
 import { CodeActionProvider } from './util/codeActions';
 import { ProjectFileStore, writeSuppressionToProjectFile } from './util/files';
+import { extractRelatedInformation } from './helpers/xmlParsingHelpers';
 
 // To keep track of document changes we save hashed versions of their content to this record
 let documentHashMemory : Record<string, string> = {};
@@ -51,14 +52,6 @@ const criticalWarningTypes = [
     'syntaxError',
     'unhandledChar',
     'unknownMacro'
-];
-
-const pathVariableArgs = [
-    '--project',
-    '--addon',
-    '--suppressions-list',
-    '--include',
-    '--rule-file',
 ];
 
 async function processArguments(args : string) {
@@ -435,8 +428,6 @@ export async function activate(context: vscode.ExtensionContext) {
                     usesPremiumCppcheck = stdout.toLowerCase().includes('premium'); 
                 });
 
-                console.log('processedArgs', processedArgs);
-
                 // Run
                 await runFullAnalysis(
                     commandPath,
@@ -444,6 +435,12 @@ export async function activate(context: vscode.ExtensionContext) {
                     uriDiagnosticsMap,
                     selection.value,
                 );
+
+                const minSevString = config.get<string>("cppcheck-official.minSeverity", "info");
+                hideDiagnosticsBasedOnSeverityLevel(parseSeverity(minSevString));
+                filterDisplayedDiagnosticsBasedOnHiddenStatus();
+                // Analysis in runFullAnalysis populates uriDiagnosticsMap with all warnings, regardless of min severity filter.
+                // Thus after running analysis we have to apply the severity filter (this also populates DiagnosticCollection, making the diagnostics visible)
             }
         )
     );
@@ -679,16 +676,7 @@ async function runCppcheckOnFileXML(
     const minSevNum = SeverityNumber.Info;
 
     // Resolve paths for arguments where applicable
-    const argsParsed = processedArgs.split(" ").map((arg) => {
-        let cleanedArg = arg.replaceAll("\"","");
-        const isPathArgument = pathVariableArgs.some(a => cleanedArg.startsWith(a));
-        // Some arguments such as addon may be either a path or the name of a built in addon
-        if (isPathArgument && looksLikePath(cleanedArg)) {
-            const splitArg = cleanedArg.split('=');
-            return `${splitArg[0]}=${resolvePath(splitArg[1])}`;
-        }
-        return arg;
-    });
+    const argsParsed = splitArgsAndResolvePaths(processedArgs);
 
     let usingProjectFile = false;
     projectFileStore.clear();
@@ -815,36 +803,9 @@ async function runCppcheckOnFileXML(
                     
                     diagnosticMetadataStore.set(diagnostic, { symbolName, mainLocLine, hidden: false });
 
-                    // Related Information
-                    const relatedInfos: vscode.DiagnosticRelatedInformation[] = [];
-                    for (let i = 1; i <= locations.length; i++) {
-                        // Related information is ordered in reverse in XML object
-                        const loc = locations[locations.length - i].$;
-                        const msg = loc.info;
-                        const lLine = Number(loc.line) - 1;
-                        const lCol = Number(loc.col) - 1;
-
-                        if (msg === null || msg === undefined || isNaN(lLine) || lLine < 0 || lLine >= document.lineCount) {
-                            continue;
-                        }
-
-                        var relatedDocument : vscode.TextDocument | undefined;
-                        try {
-                            relatedDocument = await vscode.workspace.openTextDocument(loc.file);
-                        } catch {
-                            // Do nothing
-                        }
-                        const relatedRange = new vscode.Range(
-                            lLine, lCol,
-                            lLine, relatedDocument ? relatedDocument.lineAt(lLine).text.length : lCol
-                        );
-                        relatedInfos.push(
-                            new vscode.DiagnosticRelatedInformation(
-                                new vscode.Location(relatedDocument ? relatedDocument.uri : vscode.Uri.file(''), relatedRange),
-                                msg
-                            )
-                        );
-                    }
+                    // Parse Related Information
+                    const relatedInfos: vscode.DiagnosticRelatedInformation[] = await extractRelatedInformation(locations);
+                    
                     if (relatedInfos.length > 0) {
                         diagnostic.relatedInformation = relatedInfos;
                     }
@@ -929,18 +890,8 @@ async function runFullAnalysis(
     const minSevNum = SeverityNumber.Info;
 
     // Resolve paths for arguments where applicable
-    const argsParsed = processedArgs.split(" ").map((arg) => {
-        let cleanedArg = arg.replaceAll("\"","");
-        const isPathArgument = pathVariableArgs.some(a => cleanedArg.startsWith(a));
-        // Some arguments such as addon may be either a path or the name of a built in addon
-        if (isPathArgument && looksLikePath(cleanedArg)) {
-            const splitArg = cleanedArg.split('=');
-            return `${splitArg[0]}=${resolvePath(splitArg[1])}`;
-        }
-        return arg;
-    });
+    const argsParsed = splitArgsAndResolvePaths(processedArgs);
 
-    let usingProjectFile = true;
     var projectFilePath = processedArgs.split('--project=')[1].split(' ')[0];
     projectFileStore.clear();
     projectFileStore.setUri(vscode.Uri.file(projectFilePath));
@@ -1002,22 +953,19 @@ async function runFullAnalysis(
                     }
 
                     const mainLoc = locations[locations.length - 1].$;
-                    // If main location is not current file, we are not using a project file and warning is not critical then skip displaying warning
-                    if (!isCriticalError && usingProjectFile) {
-                        continue;
-                    }
-
                     let mainLocDocument : vscode.TextDocument | undefined;
                     try {
                         mainLocDocument = await vscode.workspace.openTextDocument(mainLoc.file);
                     } catch {
-                        // do nothing
+                        // If we can't open the file in the context of a full analysis we have no reference to where the error is occurring and are forced to skip it
+                        vscode.window.showInformationMessage(`Unable to find location of error [${e.$.id}]: ${e.$.msg}`);
+                        continue;
                     }
 
                     // Cppcheck line number is 1-indexed, while VS Code uses 0-indexing
                     let line = Number(mainLoc.line) - 1;
                     // Invalid line number usually means non-analysis output 
-                    if (isNaN(line) || line < 0 || (mainLocDocument && line >= mainLocDocument.lineCount)) {
+                    if (isNaN(line) || line < 0 || line >= mainLocDocument.lineCount) {
                         if (isCriticalError) {
                             line = 0;
                         } else {
@@ -1027,7 +975,7 @@ async function runFullAnalysis(
 
                     // Cppcheck col number is 1-indexed, while VS Code uses 0-indexing
                     let col = Number(mainLoc.column) - 1;
-                    if (isNaN(col) || col < 0 || !mainLocDocument || col > mainLocDocument.lineAt(line).text.length) {
+                    if (isNaN(col) || col < 0 || col > mainLocDocument.lineAt(line).text.length) {
                         col = 0;
                     }
 
@@ -1036,7 +984,7 @@ async function runFullAnalysis(
                         continue;
                     }
 
-                    const range = new vscode.Range(line, col, line, mainLocDocument ? mainLocDocument.lineAt(line).text.length : col);
+                    const range = new vscode.Range(line, col, line, mainLocDocument.lineAt(line).text.length);
                     const diagnostic = new vscode.Diagnostic(range, e.$.msg, severity);
                     diagnostic.source = "cppcheck";
                     // If we have a link to documentation, include it
@@ -1050,58 +998,23 @@ async function runFullAnalysis(
 
                     // If warning has a symbol we keep track of it
                     const symbolName = e.symbol?.[0] ?? '';
-                    // Save line of code at main location if we can access it
-                    const mainLocLine = mainLocDocument?.lineAt(line)?.text ?? '';
+                    // Save line of code at main location
+                    const mainLocLine = mainLocDocument.lineAt(line).text;
                     
                     diagnosticMetadataStore.set(diagnostic, { symbolName, mainLocLine, hidden: false });
 
-                    // Related Information
-                    const relatedInfos: vscode.DiagnosticRelatedInformation[] = [];
-                    for (let i = 1; i <= locations.length; i++) {
-                        // Related information is ordered in reverse in XML object
-                        const loc = locations[locations.length - i].$;
-                        const msg = loc.info;
-                        const lLine = Number(loc.line) - 1;
-                        const lCol = Number(loc.col) - 1;
-
-                        if (msg === null || msg === undefined || isNaN(lLine) || lLine < 0 || (mainLocDocument && lLine >= mainLocDocument.lineCount)) {
-                            continue;
-                        }
-
-                        var relatedDocument : vscode.TextDocument | undefined;
-                        try {
-                            relatedDocument = await vscode.workspace.openTextDocument(loc.file);
-                        } catch {
-                            // Do nothing
-                        }
-                        const relatedRange = new vscode.Range(
-                            lLine, lCol,
-                            lLine, relatedDocument ? relatedDocument.lineAt(lLine).text.length : lCol
-                        );
-                        relatedInfos.push(
-                            new vscode.DiagnosticRelatedInformation(
-                                new vscode.Location(relatedDocument ? relatedDocument.uri : vscode.Uri.file(''), relatedRange),
-                                msg
-                            )
-                        );
-                    }
+                    // Parse Related Information
+                    const relatedInfos: vscode.DiagnosticRelatedInformation[] = await extractRelatedInformation(locations);
+                    
                     if (relatedInfos.length > 0) {
                         diagnostic.relatedInformation = relatedInfos;
                     }
-                    var relatedDocument : vscode.TextDocument | undefined;
-                    try {
-                        relatedDocument = await vscode.workspace.openTextDocument(mainLoc.file);
-                    } catch {
-                        // Do nothing
+                    
+                    const uri = mainLoc.file;
+                    if (diagnostics[uri] === null || diagnostics[uri] === undefined) {
+                        diagnostics[uri] = [];
                     }
-                    if (relatedDocument) {
-                        // Proceed if we are able to open the document
-                        const uri = relatedDocument.uri.toString();
-                        if (diagnostics[uri] === null || diagnostics[uri] === undefined) {
-                            diagnostics[uri] = [];
-                        }
-                        diagnostics[uri].push(diagnostic);
-                    }
+                    diagnostics[uri].push(diagnostic);
                 }
                 for (const uri of Object.keys(diagnostics)) {
                     var newDiagnostics = diagnostics[uri];
