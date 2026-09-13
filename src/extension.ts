@@ -3,9 +3,8 @@ import * as cp from 'child_process';
 import * as xml2js from 'xml2js';
 import * as crypto from 'crypto';
 
-import { documentationLinkMap, getPremiumCertLink } from './util/documentation';
 import { runCommand } from './util/scripts';
-import { looksLikePath, resolvePath, findWorkspaceRoot, splitArgsAndResolvePaths } from './util/path';
+import { resolvePath, findWorkspaceRoot, splitArgsAndResolvePaths } from './util/path';
 import { DiagnosticMetadataStore, diagnosticsUnion } from './util/diagnostics';
 import { CodeActionProvider } from './util/codeActions';
 import { ProjectFileStore, writeSuppressionToProjectFile } from './util/files';
@@ -281,10 +280,8 @@ export async function activate(context: vscode.ExtensionContext) {
                     }
                     if (code === diagnosticCode && diagnostic.range.isEqual(range)) {
                         setDiagnosticHiddenStatus(diagnostic, true);
-                        setDiagnosticHiddenStatus(diagnostic, true);
                     }
                 });
-                filterDisplayedDiagnosticsBasedOnHiddenStatus();
                 filterDisplayedDiagnosticsBasedOnHiddenStatus();
             }
         )
@@ -993,7 +990,7 @@ async function runFullAnalysis(
                         diagnostic.relatedInformation = relatedInfos;
                     }
                     
-                    const uri = mainLoc.file;
+                    const uri = mainLocDocument.uri.toString();
                     if (diagnostics[uri] === null || diagnostics[uri] === undefined) {
                         diagnostics[uri] = [];
                     }
