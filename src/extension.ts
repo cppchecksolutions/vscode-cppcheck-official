@@ -9,12 +9,14 @@ import { looksLikePath, resolvePath, findWorkspaceRoot, splitArgsAndResolvePaths
 import { DiagnosticMetadataStore, diagnosticsUnion } from './util/diagnostics';
 import { CodeActionProvider } from './util/codeActions';
 import { ProjectFileStore, writeSuppressionToProjectFile } from './util/files';
-import { extractRelatedInformation } from './helpers/xmlParsingHelpers';
+import { extractRelatedInformation, setUpDiagnostic } from './helpers/diagnosticHelpers';
 
 // To keep track of document changes we save hashed versions of their content to this record
 let documentHashMemory : Record<string, string> = {};
 // To keep track of warnings for files created from analysis of other files we save their relations to fileRelationMap
 let fileRelationMap: Record<string, Set<string>> = {};
+// Create a map for storing all diagnostics, including hidden / filtered diagnostics. Key is file uri as a string
+let uriDiagnosticsMap: Map<string, vscode.Diagnostic[]> = new Map;
 // To keep track of hidden warning types we save them to the hiddenTypes set
 let hiddenTypes: Set<string> = new Set;
 // Some diagnostics have symbol names associated with them, which we keep track of in diagnosticMetadataStore
@@ -53,6 +55,27 @@ const criticalWarningTypes = [
     'unhandledChar',
     'unknownMacro'
 ];
+
+function mapDiagnostics(diagnostics : Record<string, vscode.Diagnostic[]>, sourceDocumentUri? : string) {
+    for (const uri of Object.keys(diagnostics)) {
+        var newDiagnostics = diagnostics[uri];
+        // If file has existing diagnostics from analyzing other files we do not want to overwrite those
+        const existingDiagnostics = uriDiagnosticsMap.get(uri);
+        if (existingDiagnostics) {
+            newDiagnostics = diagnosticsUnion(newDiagnostics, existingDiagnostics.flat());
+        }
+        uriDiagnosticsMap.set(uri, newDiagnostics);
+
+        // If sourceDocumentUri is passed we keep track of file relations
+        if (sourceDocumentUri) {
+            if (fileRelationMap[uri] === null ||fileRelationMap[uri] === undefined) {
+                fileRelationMap[uri] = new Set;
+            }
+            // NOTE: uri can be the same as sourceDocumentUri
+            fileRelationMap[uri].add(sourceDocumentUri);
+        }
+    }
+}
 
 async function processArguments(args : string) {
     // If user enter arguments as array we parse them into space separated string format
@@ -99,13 +122,13 @@ function setDiagnosticHiddenStatus(diagnostic : vscode.Diagnostic, hiddenStatus 
     diagnosticMetadataStore.set(diagnostic, newMetaData);
 }
 
-function applyHiddenTypesFilter(uriDiagnosticsMap : Map<string, vscode.Diagnostic[]>) {
+function applyHiddenTypesFilter() {
     hiddenTypes.forEach((warningType) => {
-        setHiddenStatusBasedOnType(uriDiagnosticsMap, warningType, true);
+        setHiddenStatusBasedOnType(warningType, true);
     });
 }
 
-function setHiddenStatusBasedOnType(uriDiagnosticsMap : Map<string, vscode.Diagnostic[]>, diagnosticCode : string, hidden : boolean) {
+function setHiddenStatusBasedOnType(diagnosticCode : string, hidden : boolean) {
     uriDiagnosticsMap.forEach((diagnostics : readonly vscode.Diagnostic[]) => {
         diagnostics?.forEach((diagnostic : vscode.Diagnostic) => {
             var code = diagnostic.code;
@@ -161,12 +184,9 @@ export async function activate(context: vscode.ExtensionContext) {
     const diagnosticCollection = vscode.languages.createDiagnosticCollection("Cppcheck");
     context.subscriptions.push(diagnosticCollection);
     
-    // Create a map for storing all diagnostics, including hidden / filtered diagnostics. Key is file uri as a string
-    const uriDiagnosticsMap = new Map<string, vscode.Diagnostic[]>();
-
     function filterDisplayedDiagnosticsBasedOnHiddenStatus() {
         // Make sure the hidden types filter has been applied
-        applyHiddenTypesFilter(uriDiagnosticsMap);
+        applyHiddenTypesFilter();
         uriDiagnosticsMap.forEach((diagnostics : vscode.Diagnostic[], uri : string) => {
             const filteredDiagnostics = diagnostics?.filter((diagnostic : vscode.Diagnostic) => {
                 var metadata = diagnosticMetadataStore.get(diagnostic);
@@ -275,7 +295,7 @@ export async function activate(context: vscode.ExtensionContext) {
         vscode.commands.registerCommand(
             "cppcheck-official.hideWarningType",
             async (diagnosticCode : string) => {
-                setHiddenStatusBasedOnType(uriDiagnosticsMap, diagnosticCode, true);
+                setHiddenStatusBasedOnType(diagnosticCode, true);
                 hiddenTypes.add(diagnosticCode);
                 updateHiddenWarningTypesOption();
                 filterDisplayedDiagnosticsBasedOnHiddenStatus();
@@ -432,7 +452,6 @@ export async function activate(context: vscode.ExtensionContext) {
                 await runFullAnalysis(
                     commandPath,
                     processedArgs,
-                    uriDiagnosticsMap,
                     selection.value,
                 );
 
@@ -466,7 +485,7 @@ export async function activate(context: vscode.ExtensionContext) {
                 }
                 
                 hiddenTypes.delete(selection.value);
-                setHiddenStatusBasedOnType(uriDiagnosticsMap, selection.value, false);
+                setHiddenStatusBasedOnType(selection.value, false);
                 filterDisplayedDiagnosticsBasedOnHiddenStatus();
 
                 updateHiddenWarningTypesOption();
@@ -585,7 +604,6 @@ export async function activate(context: vscode.ExtensionContext) {
             document,
             commandPath,
             processedArgs,
-            uriDiagnosticsMap,
         );
 
         // Analysis in runCppcheckOnFileXML populates uriDiagnosticsMap with all warnings, regardless of min severity filter.
@@ -661,7 +679,6 @@ async function runCppcheckOnFileXML(
     document: vscode.TextDocument,
     commandPath: string,
     processedArgs: string,
-    uriDiagnosticsMap: Map<string, vscode.Diagnostic[]>,
 ): Promise<void> {
     checksRunning = true;
     updateProgressIndicator();
@@ -784,23 +801,15 @@ async function runCppcheckOnFileXML(
                         continue;
                     }
 
-                    const range = new vscode.Range(line, col, line, mainLocDocument ? mainLocDocument.lineAt(line).text.length : col);
-                    const diagnostic = new vscode.Diagnostic(range, e.$.msg, severity);
-                    diagnostic.source = "cppcheck";
-                    // If we have a link to documentation, include it
-                    diagnostic.code = documentationLinkMap[e.$.id] ? {
-                        value: e.$.id,
-                        target: vscode.Uri.parse(documentationLinkMap[e.$.id])
-                    } : getPremiumCertLink(e.$.id) ? {
-                        value: e.$.id,
-                        target: vscode.Uri.parse(getPremiumCertLink(e.$.id))
-                    } : e.$.id;
-
                     // If warning has a symbol we keep track of it
                     const symbolName = e.symbol?.[0] ?? '';
                     // Save line of code at main location if we can access it
                     const mainLocLine = mainLocDocument?.lineAt(line)?.text ?? '';
                     
+                    // Set up a vscode.diagnostic object
+                    const colEnd = mainLocDocument ? mainLocDocument.lineAt(line).text.length : col;
+                    const diagnostic = setUpDiagnostic(line, col, line, colEnd, e.$.id, e.$.msg, severity);
+
                     diagnosticMetadataStore.set(diagnostic, { symbolName, mainLocLine, hidden: false });
 
                     // Parse Related Information
@@ -824,15 +833,9 @@ async function runCppcheckOnFileXML(
                         }
                         diagnostics[uri].push(diagnostic);
                     } else {
-                        var relatedDocument : vscode.TextDocument | undefined;
-                        try {
-                            relatedDocument = await vscode.workspace.openTextDocument(mainLoc.file);
-                        } catch {
-                            // Do nothing
-                        }
-                        if (relatedDocument) {
-                            // Proceed if we are able to open the document
-                            const uri = relatedDocument.uri.toString();
+                        if (mainLocDocument) {
+                            // Proceed if we have the document
+                            const uri = mainLocDocument.uri.toString();
                             if (diagnostics[uri] === null || diagnostics[uri] === undefined) {
                                 diagnostics[uri] = [];
                             }
@@ -840,21 +843,10 @@ async function runCppcheckOnFileXML(
                         }
                     }
                 }
+                // Map diagnostics to the uriDiagnosticsMap
                 const sourceDocumentUri = document.uri.toString();
-                for (const uri of Object.keys(diagnostics)) {
-                    var newDiagnostics = diagnostics[uri];
-                    // If file has existing diagnostics from analyzing other files we do not want to overwrite those
-                    const existingDiagnostics = uriDiagnosticsMap.get(uri);
-                    if (existingDiagnostics) {
-                        newDiagnostics = diagnosticsUnion(newDiagnostics, existingDiagnostics.flat());
-                    }
-                    uriDiagnosticsMap.set(uri, newDiagnostics);
-                    if (fileRelationMap[uri] === null ||fileRelationMap[uri] === undefined) {
-                        fileRelationMap[uri] = new Set;
-                    }
-                    // NOTE: uri can be the same as sourceDocumentUri
-                    fileRelationMap[uri].add(sourceDocumentUri);
-                }
+                mapDiagnostics(diagnostics, sourceDocumentUri);
+
                 resolve();
             });
 
@@ -873,7 +865,6 @@ async function runCppcheckOnFileXML(
 async function runFullAnalysis(
     commandPath: string,
     processedArgs: string,
-    uriDiagnosticsMap: Map<string, vscode.Diagnostic[]>,
     threadsOption: string,
 ): Promise<void> {
     if (!processedArgs.includes("--project=")) {
@@ -984,22 +975,14 @@ async function runFullAnalysis(
                         continue;
                     }
 
-                    const range = new vscode.Range(line, col, line, mainLocDocument.lineAt(line).text.length);
-                    const diagnostic = new vscode.Diagnostic(range, e.$.msg, severity);
-                    diagnostic.source = "cppcheck";
-                    // If we have a link to documentation, include it
-                    diagnostic.code = documentationLinkMap[e.$.id] ? {
-                        value: e.$.id,
-                        target: vscode.Uri.parse(documentationLinkMap[e.$.id])
-                    } : getPremiumCertLink(e.$.id) ? {
-                        value: e.$.id,
-                        target: vscode.Uri.parse(getPremiumCertLink(e.$.id))
-                    } : e.$.id;
-
                     // If warning has a symbol we keep track of it
                     const symbolName = e.symbol?.[0] ?? '';
                     // Save line of code at main location
                     const mainLocLine = mainLocDocument.lineAt(line).text;
+
+                    // Set up a vscode.diagnostic object
+                    const colEnd = mainLocDocument ? mainLocDocument.lineAt(line).text.length : col;
+                    const diagnostic = setUpDiagnostic(line, col, line, colEnd, e.$.id, e.$.msg, severity);
                     
                     diagnosticMetadataStore.set(diagnostic, { symbolName, mainLocLine, hidden: false });
 
@@ -1016,15 +999,10 @@ async function runFullAnalysis(
                     }
                     diagnostics[uri].push(diagnostic);
                 }
-                for (const uri of Object.keys(diagnostics)) {
-                    var newDiagnostics = diagnostics[uri];
-                    // If file has existing diagnostics from analyzing other files we do not want to overwrite those
-                    const existingDiagnostics = uriDiagnosticsMap.get(uri);
-                    if (existingDiagnostics) {
-                        newDiagnostics = diagnosticsUnion(newDiagnostics, existingDiagnostics.flat());
-                    }
-                    uriDiagnosticsMap.set(uri, newDiagnostics);
-                }
+
+                // Map diagnostics to the uriDiagnosticsMap
+                mapDiagnostics(diagnostics);
+
                 resolve();
             });
         });

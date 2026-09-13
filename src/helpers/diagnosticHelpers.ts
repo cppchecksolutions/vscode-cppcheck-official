@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-
+import { documentationLinkMap, getPremiumCertLink } from '../util/documentation';
 interface locationObject {
     info: string,
     line: string,
@@ -9,6 +9,21 @@ interface locationObject {
 
 interface XmlAnalysisOutput {
     $: locationObject;
+}
+
+export function setUpDiagnostic(lineStart : number, colStart : number, lineEnd : number, colEnd : number, warningId : string, warningMessage : string, severity : vscode.DiagnosticSeverity) {
+    const range = new vscode.Range(lineStart, colStart, lineEnd, colEnd);
+    const diagnostic = new vscode.Diagnostic(range, warningMessage, severity);
+    diagnostic.source = "cppcheck";
+    // If we have a link to documentation, include it
+    diagnostic.code = documentationLinkMap[warningId] ? {
+        value: warningId,
+        target: vscode.Uri.parse(documentationLinkMap[warningId])
+    } : getPremiumCertLink(warningId) ? {
+        value: warningId,
+        target: vscode.Uri.parse(getPremiumCertLink(warningId))
+    } : warningId;
+    return diagnostic;
 }
 
 export async function extractRelatedInformation(locations : Array<XmlAnalysisOutput>) {
