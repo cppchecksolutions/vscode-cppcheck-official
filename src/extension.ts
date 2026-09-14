@@ -3,17 +3,19 @@ import * as cp from 'child_process';
 import * as xml2js from 'xml2js';
 import * as crypto from 'crypto';
 
-import { documentationLinkMap, getPremiumCertLink } from './util/documentation';
 import { runCommand } from './util/scripts';
-import { looksLikePath, resolvePath, findWorkspaceRoot } from './util/path';
+import { resolvePath, findWorkspaceRoot, splitArgsAndResolvePaths } from './util/path';
 import { DiagnosticMetadataStore, diagnosticsUnion } from './util/diagnostics';
 import { CodeActionProvider } from './util/codeActions';
 import { ProjectFileStore, writeSuppressionToProjectFile } from './util/files';
+import { extractRelatedInformation, setUpDiagnostic } from './helpers/diagnosticHelpers';
 
 // To keep track of document changes we save hashed versions of their content to this record
 let documentHashMemory : Record<string, string> = {};
 // To keep track of warnings for files created from analysis of other files we save their relations to fileRelationMap
 let fileRelationMap: Record<string, Set<string>> = {};
+// Create a map for storing all diagnostics, including hidden / filtered diagnostics. Key is file uri as a string
+let uriDiagnosticsMap: Map<string, vscode.Diagnostic[]> = new Map;
 // To keep track of hidden warning types we save them to the hiddenTypes set
 let hiddenTypes: Set<string> = new Set;
 // Some diagnostics have symbol names associated with them, which we keep track of in diagnosticMetadataStore
@@ -26,6 +28,7 @@ let previewedDocument: vscode.TextDocument | undefined;
 let cppcheckProgressIndicator: vscode.StatusBarItem;
 let severityOption: vscode.StatusBarItem;
 let hiddenTypesOption: vscode.StatusBarItem;
+let fullAnalysisStatusBarItem: vscode.StatusBarItem;
 let checksRunning = false;
 let usesPremiumCppcheck = false;
 
@@ -52,13 +55,46 @@ const criticalWarningTypes = [
     'unknownMacro'
 ];
 
-const pathVariableArgs = [
-    '--project',
-    '--addon',
-    '--suppressions-list',
-    '--include',
-    '--rule-file',
-];
+function mapDiagnostics(diagnostics : Record<string, vscode.Diagnostic[]>, sourceDocumentUri? : string) {
+    for (const uri of Object.keys(diagnostics)) {
+        var newDiagnostics = diagnostics[uri];
+        // If file has existing diagnostics from analyzing other files we do not want to overwrite those
+        const existingDiagnostics = uriDiagnosticsMap.get(uri);
+        if (existingDiagnostics) {
+            newDiagnostics = diagnosticsUnion(newDiagnostics, existingDiagnostics.flat());
+        }
+        uriDiagnosticsMap.set(uri, newDiagnostics);
+
+        // If sourceDocumentUri is passed we keep track of file relations
+        if (sourceDocumentUri) {
+            if (fileRelationMap[uri] === null ||fileRelationMap[uri] === undefined) {
+                fileRelationMap[uri] = new Set;
+            }
+            // NOTE: uri can be the same as sourceDocumentUri
+            fileRelationMap[uri].add(sourceDocumentUri);
+        }
+    }
+}
+
+async function processArguments(args : string) {
+    // If user enter arguments as array we parse them into space separated string format
+    if (args.startsWith("[") && args.endsWith("]")) {
+        args = args.replaceAll("[", "").replaceAll("]", "").replaceAll(",", " ");
+    }
+    
+    var processedArgs = '';
+    // If argument field contains command to run script we do so here
+    if (args.includes('@(')) {
+        const scriptCommand = args.split("@(")[1].split(")")[0];
+        const scriptOutput = await runCommand(scriptCommand);
+        // We expect that the script output that is to be used as arguments will be wrapped with ${}
+        const scriptOutputTrimmed = scriptOutput.split("@(")[1].split(")")[0];
+        processedArgs = args.split("@(")[0] + scriptOutputTrimmed + args.split(")")?.[1];
+    } else {
+        processedArgs = args;
+    }
+    return processedArgs;
+}
 
 function parseSeverity(str: string): vscode.DiagnosticSeverity {
     const lower = str.toLowerCase();
@@ -85,13 +121,13 @@ function setDiagnosticHiddenStatus(diagnostic : vscode.Diagnostic, hiddenStatus 
     diagnosticMetadataStore.set(diagnostic, newMetaData);
 }
 
-function applyHiddenTypesFilter(uriDiagnosticsMap : Map<string, vscode.Diagnostic[]>) {
+function applyHiddenTypesFilter() {
     hiddenTypes.forEach((warningType) => {
-        setHiddenStatusBasedOnType(uriDiagnosticsMap, warningType, true);
+        setHiddenStatusBasedOnType(warningType, true);
     });
 }
 
-function setHiddenStatusBasedOnType(uriDiagnosticsMap : Map<string, vscode.Diagnostic[]>, diagnosticCode : string, hidden : boolean) {
+function setHiddenStatusBasedOnType(diagnosticCode : string, hidden : boolean) {
     uriDiagnosticsMap.forEach((diagnostics : readonly vscode.Diagnostic[]) => {
         diagnostics?.forEach((diagnostic : vscode.Diagnostic) => {
             var code = diagnostic.code;
@@ -111,9 +147,16 @@ function updateProgressIndicator(): void {
 		cppcheckProgressIndicator.show();
         // To avoid crowding status bar we alternate between progress indicator and severity option item
         severityOption.hide();
+        fullAnalysisStatusBarItem.hide();
 	} else {
 		cppcheckProgressIndicator.hide();
         severityOption.show();
+        // If a project file exists, show full analysis status bar item
+        if (projectFileStore.getUri()) {
+            fullAnalysisStatusBarItem.show();
+        } else {
+            fullAnalysisStatusBarItem.hide();
+        }
 	}
 }
 
@@ -138,6 +181,12 @@ function getDocumentSha1(document: vscode.TextDocument): string {
         .digest('hex');
 }
 
+function clearFileRelationMap() {
+    for (const fileUri of Object.keys(fileRelationMap)) {
+        fileRelationMap[fileUri].clear;
+    }
+}
+
 // This method is called when your extension is activated.
 // Your extension is activated the very first time the command is executed.
 export async function activate(context: vscode.ExtensionContext) {    
@@ -145,12 +194,9 @@ export async function activate(context: vscode.ExtensionContext) {
     const diagnosticCollection = vscode.languages.createDiagnosticCollection("Cppcheck");
     context.subscriptions.push(diagnosticCollection);
     
-    // Create a map for storing all diagnostics, including hidden / filtered diagnostics. Key is file uri as a string
-    const uriDiagnosticsMap = new Map<string, vscode.Diagnostic[]>();
-
     function filterDisplayedDiagnosticsBasedOnHiddenStatus() {
         // Make sure the hidden types filter has been applied
-        applyHiddenTypesFilter(uriDiagnosticsMap);
+        applyHiddenTypesFilter();
         uriDiagnosticsMap.forEach((diagnostics : vscode.Diagnostic[], uri : string) => {
             const filteredDiagnostics = diagnostics?.filter((diagnostic : vscode.Diagnostic) => {
                 var metadata = diagnosticMetadataStore.get(diagnostic);
@@ -245,10 +291,8 @@ export async function activate(context: vscode.ExtensionContext) {
                     }
                     if (code === diagnosticCode && diagnostic.range.isEqual(range)) {
                         setDiagnosticHiddenStatus(diagnostic, true);
-                        setDiagnosticHiddenStatus(diagnostic, true);
                     }
                 });
-                filterDisplayedDiagnosticsBasedOnHiddenStatus();
                 filterDisplayedDiagnosticsBasedOnHiddenStatus();
             }
         )
@@ -259,7 +303,7 @@ export async function activate(context: vscode.ExtensionContext) {
         vscode.commands.registerCommand(
             "cppcheck-official.hideWarningType",
             async (diagnosticCode : string) => {
-                setHiddenStatusBasedOnType(uriDiagnosticsMap, diagnosticCode, true);
+                setHiddenStatusBasedOnType(diagnosticCode, true);
                 hiddenTypes.add(diagnosticCode);
                 updateHiddenWarningTypesOption();
                 filterDisplayedDiagnosticsBasedOnHiddenStatus();
@@ -361,6 +405,72 @@ export async function activate(context: vscode.ExtensionContext) {
             }
         )
     );
+    
+    context.subscriptions.push(
+        vscode.commands.registerCommand(
+            "cppcheck-official.runFullAnalysis",
+            async () => {
+
+                const selection = await vscode.window.showQuickPick(
+                    [
+                        {
+                            label: "1 thread",
+                            description: "No parallel threads",
+                            value: "-j1"
+                        },
+                        {
+                            label: "2 threads",
+                            description: "2 parallel threads",
+                            value: "-j2"
+                        },
+                        {
+                            label: "4 threads",
+                            description: "4 parallel threads",
+                            value: "-j4"
+                        }
+                    ],
+                    {
+                        title: "Select how many threads to run in parallel for full analysis"
+                    }
+                );
+                if (!selection) {
+                    return;
+                }
+
+                const config = vscode.workspace.getConfiguration();
+                const userPath = config.get<string>("cppcheck-official.path")?.trim() || "";
+                const commandPath = userPath ? resolvePath(userPath) : "cppcheck";
+
+                var  args = config.get<string>("cppcheck-official.arguments", "");
+                const processedArgs = await processArguments(args);
+
+                // Check if cppcheck is available
+                cp.exec(`"${commandPath}" --version`, (error, stdout) => {
+                    if (error) {
+                        vscode.window.showErrorMessage(
+                            `Cppcheck: Could not find or run '${commandPath}'. ` +
+                            `Please install cppcheck or set 'cppcheck-official.path' correctly.`
+                        );
+                        return;
+                    }
+                    usesPremiumCppcheck = stdout.toLowerCase().includes('premium'); 
+                });
+
+                // Run
+                await runFullAnalysis(
+                    commandPath,
+                    processedArgs,
+                    selection.value,
+                );
+
+                const minSevString = config.get<string>("cppcheck-official.minSeverity", "info");
+                hideDiagnosticsBasedOnSeverityLevel(parseSeverity(minSevString));
+                filterDisplayedDiagnosticsBasedOnHiddenStatus();
+                // Analysis in runFullAnalysis populates uriDiagnosticsMap with all warnings, regardless of min severity filter.
+                // Thus after running analysis we have to apply the severity filter (this also populates DiagnosticCollection, making the diagnostics visible)
+            }
+        )
+    );
 
     context.subscriptions.push(
         vscode.commands.registerCommand(
@@ -383,7 +493,7 @@ export async function activate(context: vscode.ExtensionContext) {
                 }
                 
                 hiddenTypes.delete(selection.value);
-                setHiddenStatusBasedOnType(uriDiagnosticsMap, selection.value, false);
+                setHiddenStatusBasedOnType(selection.value, false);
                 filterDisplayedDiagnosticsBasedOnHiddenStatus();
 
                 updateHiddenWarningTypesOption();
@@ -423,6 +533,15 @@ export async function activate(context: vscode.ExtensionContext) {
     // Call update function once at setup to set the UI text to the settings current value
     updateHiddenWarningTypesOption();
 
+    // Full analysis status bar item
+    fullAnalysisStatusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 8);
+    fullAnalysisStatusBarItem.command = "cppcheck-official.runFullAnalysis";
+    fullAnalysisStatusBarItem.text = `$(play) Full Analysis`;
+    // If a project file exists, show full analysis status bar item
+    if (projectFileStore.getUri()) {
+        fullAnalysisStatusBarItem.show();
+    }
+    context.subscriptions.push(fullAnalysisStatusBarItem);
 
     function clearDiagnosticForDoc(doc: vscode.TextDocument): void {
         // Any file who was warnings generated from (and only from) the closed doc have their diagnostics cleared
@@ -472,22 +591,7 @@ export async function activate(context: vscode.ExtensionContext) {
         const commandPath = userPath ? resolvePath(userPath) : "cppcheck";
 
         var  args = config.get<string>("cppcheck-official.arguments", "");
-        // If user enter arguments as array we parse them into space separated string format
-        if (args.startsWith("[") && args.endsWith("]")) {
-            args = args.replaceAll("[", "").replaceAll("]", "").replaceAll(",", " ");
-        }
-        
-        var processedArgs = '';
-        // If argument field contains command to run script we do so here
-        if (args.includes('@(')) {
-            const scriptCommand = args.split("@(")[1].split(")")[0];
-            const scriptOutput = await runCommand(scriptCommand);
-            // We expect that the script output that is to be used as arguments will be wrapped with ${}
-            const scriptOutputTrimmed = scriptOutput.split("@(")[1].split(")")[0];
-            processedArgs = args.split("@(")[0] + scriptOutputTrimmed + args.split(")")?.[1];
-        } else {
-            processedArgs = args;
-        }
+        const processedArgs = await processArguments(args);
 
         // If disabled, clear any existing diagnostics for this doc.
         if (!isEnabled) {
@@ -511,7 +615,6 @@ export async function activate(context: vscode.ExtensionContext) {
             document,
             commandPath,
             processedArgs,
-            uriDiagnosticsMap,
         );
 
         // Analysis in runCppcheckOnFileXML populates uriDiagnosticsMap with all warnings, regardless of min severity filter.
@@ -587,7 +690,6 @@ async function runCppcheckOnFileXML(
     document: vscode.TextDocument,
     commandPath: string,
     processedArgs: string,
-    uriDiagnosticsMap: Map<string, vscode.Diagnostic[]>,
 ): Promise<void> {
     checksRunning = true;
     updateProgressIndicator();
@@ -602,16 +704,7 @@ async function runCppcheckOnFileXML(
     const minSevNum = SeverityNumber.Info;
 
     // Resolve paths for arguments where applicable
-    const argsParsed = processedArgs.split(" ").map((arg) => {
-        let cleanedArg = arg.replaceAll("\"","");
-        const isPathArgument = pathVariableArgs.some(a => cleanedArg.startsWith(a));
-        // Some arguments such as addon may be either a path or the name of a built in addon
-        if (isPathArgument && looksLikePath(cleanedArg)) {
-            const splitArg = cleanedArg.split('=');
-            return `${splitArg[0]}=${resolvePath(splitArg[1])}`;
-        }
-        return arg;
-    });
+    const argsParsed = splitArgsAndResolvePaths(processedArgs);
 
     let usingProjectFile = false;
     projectFileStore.clear();
@@ -675,7 +768,7 @@ async function runCppcheckOnFileXML(
                     return;
                 }
 
-                const errors = result.results?.errors?.[0]?.error || [];
+                const errors = result?.results?.errors?.[0]?.error || [];
                 const diagnostics: Record<string, vscode.Diagnostic[]> = {};
                 for (const e of errors) {
                     const isCriticalError = criticalWarningTypes.includes(e.$.id);
@@ -719,55 +812,19 @@ async function runCppcheckOnFileXML(
                         continue;
                     }
 
-                    const range = new vscode.Range(line, col, line, mainLocDocument ? mainLocDocument.lineAt(line).text.length : col);
-                    const diagnostic = new vscode.Diagnostic(range, e.$.msg, severity);
-                    diagnostic.source = "cppcheck";
-                    // If we have a link to documentation, include it
-                    diagnostic.code = documentationLinkMap[e.$.id] ? {
-                        value: e.$.id,
-                        target: vscode.Uri.parse(documentationLinkMap[e.$.id])
-                    } : getPremiumCertLink(e.$.id) ? {
-                        value: e.$.id,
-                        target: vscode.Uri.parse(getPremiumCertLink(e.$.id))
-                    } : e.$.id;
-
                     // If warning has a symbol we keep track of it
                     const symbolName = e.symbol?.[0] ?? '';
                     // Save line of code at main location if we can access it
                     const mainLocLine = mainLocDocument?.lineAt(line)?.text ?? '';
                     
+                    // Set up a vscode.diagnostic object
+                    const colEnd = mainLocDocument ? mainLocDocument.lineAt(line).text.length : col;
+                    const diagnostic = setUpDiagnostic(line, col, line, colEnd, e.$.id, e.$.msg, severity);
+
                     diagnosticMetadataStore.set(diagnostic, { symbolName, mainLocLine, hidden: false });
 
-                    // Related Information
-                    const relatedInfos: vscode.DiagnosticRelatedInformation[] = [];
-                    for (let i = 1; i <= locations.length; i++) {
-                        // Related information is ordered in reverse in XML object
-                        const loc = locations[locations.length - i].$;
-                        const msg = loc.info;
-                        const lLine = Number(loc.line) - 1;
-                        const lCol = Number(loc.col) - 1;
-
-                        if (msg === null || msg === undefined || isNaN(lLine) || lLine < 0 || lLine >= document.lineCount) {
-                            continue;
-                        }
-
-                        var relatedDocument : vscode.TextDocument | undefined;
-                        try {
-                            relatedDocument = await vscode.workspace.openTextDocument(loc.file);
-                        } catch {
-                            // Do nothing
-                        }
-                        const relatedRange = new vscode.Range(
-                            lLine, lCol,
-                            lLine, relatedDocument ? relatedDocument.lineAt(lLine).text.length : lCol
-                        );
-                        relatedInfos.push(
-                            new vscode.DiagnosticRelatedInformation(
-                                new vscode.Location(relatedDocument ? relatedDocument.uri : vscode.Uri.file(''), relatedRange),
-                                msg
-                            )
-                        );
-                    }
+                    // Parse Related Information
+                    const relatedInfos: vscode.DiagnosticRelatedInformation[] = await extractRelatedInformation(locations);
                     if (relatedInfos.length > 0) {
                         diagnostic.relatedInformation = relatedInfos;
                     }
@@ -786,15 +843,9 @@ async function runCppcheckOnFileXML(
                         }
                         diagnostics[uri].push(diagnostic);
                     } else {
-                        var relatedDocument : vscode.TextDocument | undefined;
-                        try {
-                            relatedDocument = await vscode.workspace.openTextDocument(mainLoc.file);
-                        } catch {
-                            // Do nothing
-                        }
-                        if (relatedDocument) {
-                            // Proceed if we are able to open the document
-                            const uri = relatedDocument.uri.toString();
+                        if (mainLocDocument) {
+                            // Proceed if we have the document
+                            const uri = mainLocDocument.uri.toString();
                             if (diagnostics[uri] === null || diagnostics[uri] === undefined) {
                                 diagnostics[uri] = [];
                             }
@@ -802,21 +853,10 @@ async function runCppcheckOnFileXML(
                         }
                     }
                 }
+                // Map diagnostics to the uriDiagnosticsMap
                 const sourceDocumentUri = document.uri.toString();
-                for (const uri of Object.keys(diagnostics)) {
-                    var newDiagnostics = diagnostics[uri];
-                    // If file has existing diagnostics from analyzing other files we do not want to overwrite those
-                    const existingDiagnostics = uriDiagnosticsMap.get(uri);
-                    if (existingDiagnostics) {
-                        newDiagnostics = diagnosticsUnion(newDiagnostics, existingDiagnostics.flat());
-                    }
-                    uriDiagnosticsMap.set(uri, newDiagnostics);
-                    if (fileRelationMap[uri] === null ||fileRelationMap[uri] === undefined) {
-                        fileRelationMap[uri] = new Set;
-                    }
-                    // NOTE: uri can be the same as sourceDocumentUri
-                    fileRelationMap[uri].add(sourceDocumentUri);
-                }
+                mapDiagnostics(diagnostics, sourceDocumentUri);
+
                 resolve();
             });
 
@@ -825,6 +865,159 @@ async function runCppcheckOnFileXML(
                 const hashedContentOfFile = getDocumentSha1(document);
                 documentHashMemory[document.fileName] = hashedContentOfFile;
             }
+        });
+    });
+
+    checksRunning = false;
+    updateProgressIndicator();
+}
+
+async function runFullAnalysis(
+    commandPath: string,
+    processedArgs: string,
+    threadsOption: string,
+): Promise<void> {
+    if (!processedArgs.includes("--project=")) {
+        throw new Error("Full analysis called without specified project file!");
+    }
+
+    checksRunning = true;
+    updateProgressIndicator();
+
+    // Clear existing diagnostics for all files
+    uriDiagnosticsMap.clear();
+
+    // Clear file relation map when we run full analysis
+    clearFileRelationMap();
+
+    // We always call cppcheck with severity level info, and then filter warnings when displaying them
+    const minSevNum = SeverityNumber.Info;
+
+    // Resolve paths for arguments where applicable
+    const argsParsed = splitArgsAndResolvePaths(processedArgs);
+
+    var projectFilePath = processedArgs.split('--project=')[1].split(' ')[0];
+    projectFileStore.clear();
+    projectFileStore.setUri(vscode.Uri.file(projectFilePath));
+
+    const args = [
+        '--enable=all',
+        '--inline-suppr',
+        '--xml',
+        threadsOption,
+        ...argsParsed,
+    ].filter(Boolean);
+
+    if (usesPremiumCppcheck) {
+        args.push('--premium=safety-off');
+    }
+
+    let proc;
+    const cwd = findWorkspaceRoot();
+    proc = cp.spawn(commandPath, args, {
+        cwd,
+    });
+
+    await new Promise<void>((resolve, reject) => {
+        // if spawn fails (e.g. ENOENT or permission denied)
+        proc.on("error", (err) => {
+            console.error("Failed to start cppcheck:", err);
+            vscode.window.showErrorMessage(`Cppcheck failed to start: ${err.message}`);
+            reject(err);
+        });
+
+        let xmlOutput = "";
+        let out = "";
+        proc.stderr.on("data", d => xmlOutput += d.toString());
+        proc.stdout.on("data", d => out += d.toString());
+        proc.on("close", code => {
+            if (code && code > 0) {
+                // Non-zero code means an error has occured
+                let errorMessage = `Cppcheck failed with code ${code} (unknown error)`;
+                if (out.trim().length > 0) {
+                    errorMessage = out.trim();
+                }
+                errorMessage = `${errorMessage}, Command: ${commandPath} ${args.join(' ')}`;
+                vscode.window.showErrorMessage(errorMessage);
+            }
+            const parser = new xml2js.Parser({ explicitArray: true });
+            parser.parseString(xmlOutput, async (err, result) => {
+                if (err) {
+                    console.error("XML parse error:", err);
+                    return;
+                }
+
+                const errors = result?.results?.errors?.[0]?.error || [];
+                const diagnostics: Record<string, vscode.Diagnostic[]> = {};
+                for (const e of errors) {
+                    const isCriticalError = criticalWarningTypes.includes(e.$.id);
+                    const locations = e.location || [];
+                    if (!locations.length) {
+                        continue;
+                    }
+
+                    const mainLoc = locations[locations.length - 1].$;
+                    let mainLocDocument : vscode.TextDocument | undefined;
+                    try {
+                        mainLocDocument = await vscode.workspace.openTextDocument(mainLoc.file);
+                    } catch {
+                        // If we can't open the file in the context of a full analysis we have no reference to where the error is occurring and are forced to skip it
+                        vscode.window.showInformationMessage(`Unable to find location of error [${e.$.id}]: ${e.$.msg}`);
+                        continue;
+                    }
+
+                    // Cppcheck line number is 1-indexed, while VS Code uses 0-indexing
+                    let line = Number(mainLoc.line) - 1;
+                    // Invalid line number usually means non-analysis output 
+                    if (isNaN(line) || line < 0 || line >= mainLocDocument.lineCount) {
+                        if (isCriticalError) {
+                            line = 0;
+                        } else {
+                            continue;
+                        }
+                    }
+
+                    // Cppcheck col number is 1-indexed, while VS Code uses 0-indexing
+                    let col = Number(mainLoc.column) - 1;
+                    if (isNaN(col) || col < 0 || col > mainLocDocument.lineAt(line).text.length) {
+                        col = 0;
+                    }
+
+                    const severity = parseSeverity(e.$.severity);
+                    if (!isCriticalError && severityToNumber(severity) < minSevNum) {
+                        continue;
+                    }
+
+                    // If warning has a symbol we keep track of it
+                    const symbolName = e.symbol?.[0] ?? '';
+                    // Save line of code at main location
+                    const mainLocLine = mainLocDocument.lineAt(line).text;
+
+                    // Set up a vscode.diagnostic object
+                    const colEnd = mainLocDocument ? mainLocDocument.lineAt(line).text.length : col;
+                    const diagnostic = setUpDiagnostic(line, col, line, colEnd, e.$.id, e.$.msg, severity);
+                    
+                    diagnosticMetadataStore.set(diagnostic, { symbolName, mainLocLine, hidden: false });
+
+                    // Parse Related Information
+                    const relatedInfos: vscode.DiagnosticRelatedInformation[] = await extractRelatedInformation(locations);
+                    
+                    if (relatedInfos.length > 0) {
+                        diagnostic.relatedInformation = relatedInfos;
+                    }
+                    
+                    const uri = mainLocDocument.uri.toString();
+                    if (diagnostics[uri] === null || diagnostics[uri] === undefined) {
+                        diagnostics[uri] = [];
+                    }
+                    diagnostics[uri].push(diagnostic);
+                }
+
+                // Map diagnostics to the uriDiagnosticsMap
+                mapDiagnostics(diagnostics);
+
+                resolve();
+            });
         });
     });
 
