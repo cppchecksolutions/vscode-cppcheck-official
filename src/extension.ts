@@ -151,7 +151,12 @@ function updateProgressIndicator(): void {
 	} else {
 		cppcheckProgressIndicator.hide();
         severityOption.show();
-        fullAnalysisStatusBarItem.show();
+        // If a project file exists, show full analysis status bar item
+        if (projectFileStore.getUri()) {
+            fullAnalysisStatusBarItem.show();
+        } else {
+            fullAnalysisStatusBarItem.hide();
+        }
 	}
 }
 
@@ -532,7 +537,10 @@ export async function activate(context: vscode.ExtensionContext) {
     fullAnalysisStatusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 8);
     fullAnalysisStatusBarItem.command = "cppcheck-official.runFullAnalysis";
     fullAnalysisStatusBarItem.text = `$(play) Full Analysis`;
-    fullAnalysisStatusBarItem.show();
+    // If a project file exists, show full analysis status bar item
+    if (projectFileStore.getUri()) {
+        fullAnalysisStatusBarItem.show();
+    }
     context.subscriptions.push(fullAnalysisStatusBarItem);
 
     function clearDiagnosticForDoc(doc: vscode.TextDocument): void {
@@ -760,7 +768,7 @@ async function runCppcheckOnFileXML(
                     return;
                 }
 
-                const errors = result.results?.errors?.[0]?.error || [];
+                const errors = result?.results?.errors?.[0]?.error || [];
                 const diagnostics: Record<string, vscode.Diagnostic[]> = {};
                 for (const e of errors) {
                     const isCriticalError = criticalWarningTypes.includes(e.$.id);
@@ -817,7 +825,6 @@ async function runCppcheckOnFileXML(
 
                     // Parse Related Information
                     const relatedInfos: vscode.DiagnosticRelatedInformation[] = await extractRelatedInformation(locations);
-                    
                     if (relatedInfos.length > 0) {
                         diagnostic.relatedInformation = relatedInfos;
                     }
@@ -871,7 +878,7 @@ async function runFullAnalysis(
     threadsOption: string,
 ): Promise<void> {
     if (!processedArgs.includes("--project=")) {
-        throw new Error("full analysis called without specified project file!");
+        throw new Error("Full analysis called without specified project file!");
     }
 
     checksRunning = true;
@@ -940,7 +947,7 @@ async function runFullAnalysis(
                     return;
                 }
 
-                const errors = result.results?.errors?.[0]?.error || [];
+                const errors = result?.results?.errors?.[0]?.error || [];
                 const diagnostics: Record<string, vscode.Diagnostic[]> = {};
                 for (const e of errors) {
                     const isCriticalError = criticalWarningTypes.includes(e.$.id);
