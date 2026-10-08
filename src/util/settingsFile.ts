@@ -14,12 +14,12 @@ interface SettingsFile {
 // Remember the last reported error so that the user is not spammed with the same message on every analysis
 let lastReportedError = '';
 
-export function getSettingsFilePath(): string {
-    return path.join(findWorkspaceRoot(), settingsFileName);
+export function getSettingsFilePath(workspaceRoot: string = findWorkspaceRoot()): string {
+    return path.join(workspaceRoot, settingsFileName);
 }
 
-function readSettingsFile(): SettingsFile | undefined {
-    const filePath = getSettingsFilePath();
+function readSettingsFile(workspaceRoot: string): SettingsFile | undefined {
+    const filePath = getSettingsFilePath(workspaceRoot);
     if (!fs.existsSync(filePath)) {
         lastReportedError = '';
         return undefined;
@@ -55,8 +55,8 @@ function readSettingsFile(): SettingsFile | undefined {
 }
 
 // Get cppcheck arguments, from the settings file if it specifies them, otherwise from the VS Code settings
-export function getArguments(config: vscode.WorkspaceConfiguration): string {
-    const settings = readSettingsFile();
+export function getArguments(config: vscode.WorkspaceConfiguration, workspaceRoot: string = findWorkspaceRoot()): string {
+    const settings = readSettingsFile(workspaceRoot);
     if (settings?.arguments !== undefined) {
         return settings.arguments;
     }
