@@ -1,0 +1,16 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Cppcheck Official settings file",
+  "description": "Shared settings for the Cppcheck Official VS Code extension. Settings in this file take precedence over the VS Code settings.",
+  "type": "object",
+  "properties": {
+    "arguments": {
+      "description": "Additional command line arguments for cppcheck. Overrides the 'cppcheck-official.arguments' setting. Paths are resolved relative to the workspace folder.",
+      "oneOf": [
+        { "type": "string" },
+        { "type": "array", "items": { "type": "string" } }
+      ]
+    }
+  },
+  "additionalProperties": false
+}

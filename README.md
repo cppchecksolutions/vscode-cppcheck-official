@@ -40,6 +40,18 @@ This extension contributes the following settings under `cppcheck-official.*`:
 - **`cppcheck-official.arguments`**: (string) Additional [command line arguments](https://cppcheck.sourceforge.io/manual.pdf?#page=5) to pass to `cppcheck`.  
 - **`cppcheck-official.path`**: (string) Path to the `cppcheck` executable (i.e. `/path/to/cppcheck.exe`). If left empty, `cppcheck` from the system PATH is used. Supports paths relative to workspace folder on the formats `./RELATIVE_PATH`, `../RELATIVE_PATH` or `${workspaceFolder}/RELATIVE_PATH`.
 
+## Shared Settings File
+
+To give all developers in a project the same setup, create a `cppcheck.json` file in the root of the workspace folder and commit it to version control:
+
+```json
+{
+  "arguments": "--project=build/compile_commands.json --enable=style --suppress=missingInclude"
+}
+```
+
+`arguments` can be either a string or an array of strings. If the file specifies `arguments`, it takes precedence over the `cppcheck-official.arguments` setting. Relative paths are resolved relative to the workspace folder. All other settings are still read from the VS Code settings, so each developer can adjust them individually.
+
 ## Reporting Issues
 Please submit any issues or feature requests via the [GitHub Issues page](https://github.com/cppchecksolutions/vscode-cppcheck-official/issues).
 
