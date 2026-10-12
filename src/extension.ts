@@ -9,6 +9,7 @@ import { DiagnosticMetadataStore, diagnosticsUnion } from './util/diagnostics';
 import { CodeActionProvider } from './util/codeActions';
 import { ProjectFileStore, writeSuppressionToProjectFile } from './util/files';
 import { extractRelatedInformation, setUpDiagnostic } from './helpers/diagnosticHelpers';
+import { getArguments } from './util/settingsFile';
 
 // To keep track of document changes we save hashed versions of their content to this record
 let documentHashMemory : Record<string, string> = {};
@@ -441,7 +442,7 @@ export async function activate(context: vscode.ExtensionContext) {
                 const userPath = config.get<string>("cppcheck-official.path")?.trim() || "";
                 const commandPath = userPath ? resolvePath(userPath) : "cppcheck";
 
-                var  args = config.get<string>("cppcheck-official.arguments", "");
+                var  args = getArguments(config);
                 const processedArgs = await processArguments(args);
 
                 // Check if cppcheck is available
@@ -590,7 +591,7 @@ export async function activate(context: vscode.ExtensionContext) {
         const userPath = config.get<string>("cppcheck-official.path")?.trim() || "";
         const commandPath = userPath ? resolvePath(userPath) : "cppcheck";
 
-        var  args = config.get<string>("cppcheck-official.arguments", "");
+        var  args = getArguments(config);
         const processedArgs = await processArguments(args);
 
         // If disabled, clear any existing diagnostics for this doc.

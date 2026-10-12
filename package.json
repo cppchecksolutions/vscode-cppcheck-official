@@ -67,10 +67,16 @@
           "cppcheck-official.arguments": {
             "type": "string",
             "default": "",
-            "markdownDescription": "Additional command line arguments for cppcheck. Use spaces to separate multiple arguments. For documentation see: [Cppcheck documentation](https://files.cppchecksolutions.com/manual.pdf)",
+            "markdownDescription": "Additional command line arguments for cppcheck. Use spaces to separate multiple arguments. For documentation see: [Cppcheck documentation](https://files.cppchecksolutions.com/manual.pdf). Overridden by `arguments` in `cppcheck.json` in the workspace folder, if present.",
             "description": "Additional command line arguments for cppcheck. Use spaces to separate multiple arguments."
           }
         }
+      }
+    ],
+    "jsonValidation": [
+      {
+        "fileMatch": "/cppcheck.json",
+        "url": "./schemas/cppcheck.schema.json"
       }
     ],
     "walkthroughs": [
