@@ -16,28 +16,32 @@ suite('diagnosticHelpers.ts Test Suite', () => {
 		const warningMessage = 'Test warning: null Pointer';
 		const severity = vscode.DiagnosticSeverity.Warning;
 		const diagnostic = setUpDiagnostic(line, colStart, line, colEnd, warningId, warningMessage, severity);
-		// Check that source is being set
+		
+		console.log(`Check that source is being set`);
 		assert.strictEqual(diagnostic.source, "cppcheck");
-		// Check that code is an object with link and Id on property 'target' for known warningId with documentation
+		
+		console.log(`Check that code is an object with link and Id on property 'value' for known warningId with documentation`);
 		assert.strictEqual(typeof(diagnostic.code), "object");
 		assert.strictEqual(typeof(diagnostic.code) === "object" ? diagnostic.code.value : '', warningId);
-		// Check that code is a string with value of warningId in other cases
+		
+		console.log(`Check that code is a string with value of warningId in other cases`);
 		const warningIdWithoutDocumentation = 'dummyWarningId';
 		const diagnosticWithoutDocumentation = setUpDiagnostic(line, colStart, line, colEnd, warningIdWithoutDocumentation, warningMessage, severity);
 		assert.strictEqual(diagnosticWithoutDocumentation.code, warningIdWithoutDocumentation);
 	});
 
-	test('test extractRelatedInformation', () => {
+	test('test extractRelatedInformation', async () => {
 		const parser = new xml2js.Parser({ explicitArray: true });
 		parser.parseString(multiLocationWarningXml, async (err, result) => {
 			const errors = result?.results?.errors?.[0]?.error || [];
 			const locations = errors[0].location;
 			const relatedInfos = await extractRelatedInformation(locations);
-			// Check that relatedInfos is populated
+			console.log('relatedInfos', relatedInfos);
+			console.log('Check that relatedInfos is populated');
 			assert.strictEqual(relatedInfos.length > 0, true);
-			// Check that message is set
+			console.log('Check that message is set');
 			assert.notEqual(relatedInfos[0].message, "");
-			// Check that uri for location of warning is set 
+			console.log('Check that uri for location of warning is set'); 
 			assert.strictEqual(relatedInfos[0].location.uri.toString, mulitpleLocationWarningUri);
 		});
 	});
