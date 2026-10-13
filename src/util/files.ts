@@ -16,7 +16,7 @@ export class ProjectFileStore {
         if (!uri) {
             return false;
         }
-        var projectFileType = uri.path.split('.')[1];
+        var projectFileType = getFileType(uri.path);
         return projectFileType.toLowerCase() === 'cppcheck'; 
     }
 
@@ -25,15 +25,22 @@ export class ProjectFileStore {
     }
 }
 
+export function getFileType(path : string) {
+    const splitFilePath = path.split('.');
+    return splitFilePath[splitFilePath.length - 1]; 
+}
+
 export async function writeSuppressionToProjectFile(projectFileUri : vscode.Uri, warningType : String, file? : String, symbolName? : String) : Promise<boolean> {
-    const fileType = projectFileUri.toString().split('.')[1];
+    const fileType = getFileType(projectFileUri.toString());
     if (fileType !== 'cppcheck') {
         throw new Error(`Function writeSuppressionToProjectFile only supports writing to .cppcheck project files! Recieved file is of type .${fileType}`);
     }
 
     // Open project file with vscode workspace API
+    console.log('projectFileUri', projectFileUri);
     const document = await vscode.workspace.openTextDocument(projectFileUri);
     const text = document.getText();
+    console.log('projectFile opened');
     const edit = new vscode.WorkspaceEdit();
     var textToInsert = '';
     var positionToInsertAt = 0;

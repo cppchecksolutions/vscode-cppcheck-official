@@ -725,7 +725,8 @@ async function runCppcheckOnFileXML(
         usingProjectFile = true;
         args.push(`--file-filter=${filePath}`);
         var projectFilePath = processedArgs.split('--project=')[1].split(' ')[0];
-        projectFileStore.setUri(vscode.Uri.file(projectFilePath));
+        const absoluteProjectFilePath = resolvePath(projectFilePath);
+        projectFileStore.setUri(vscode.Uri.file(absoluteProjectFilePath));
     } else {
         args.push(
         '--suppress=unusedFunction',
