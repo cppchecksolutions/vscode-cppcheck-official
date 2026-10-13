@@ -113,7 +113,7 @@ export class CodeActionProvider implements vscode.CodeActionProvider {
             /* 
             * Actions only applicable if project file is used
             */
-           if (this.projectFileStore.hasCppcheckProjectFile()) {
+            if (this.projectFileStore.hasCppcheckProjectFile()) {
                 // Set up an action for suppressing warning of a given type universally
                 const suppressTypeAction = new vscode.CodeAction(
                     `Suppress warning type ${diagnosticCode} universally (in project file)`,
