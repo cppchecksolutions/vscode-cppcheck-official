@@ -696,7 +696,7 @@ async function runCppcheckOnFileXML(
     updateProgressIndicator();
 
     // Clear existing diagnostics for this file
-    uriDiagnosticsMap.delete(document.uri.toString());
+    uriDiagnosticsMap.set(document.uri.toString(), []);
 
     // Replace backslashes (used in paths in Windows environment)
     const filePath = document.fileName.replaceAll('\\', '/');
