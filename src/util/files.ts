@@ -37,10 +37,8 @@ export async function writeSuppressionToProjectFile(projectFileUri : vscode.Uri,
     }
 
     // Open project file with vscode workspace API
-    console.log('projectFileUri', projectFileUri);
     const document = await vscode.workspace.openTextDocument(projectFileUri);
     const text = document.getText();
-    console.log('projectFile opened');
     const edit = new vscode.WorkspaceEdit();
     var textToInsert = '';
     var positionToInsertAt = 0;
