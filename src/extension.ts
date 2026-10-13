@@ -264,11 +264,6 @@ export async function activate(context: vscode.ExtensionContext) {
                         const fileOrSymbolExtraMessage = file || symbolName ? '. Note: you have to re-analyze the file for the suppression to take effect.' : '';
                         const completeInformationMessageText = `Suppression of ${diagnosticCode} added to project file ${projectFileStore.getUri()?.toString()}${fileMessagePart}${symbolNameMessagePart}${fileOrSymbolExtraMessage}`;
                         vscode.window.showInformationMessage(completeInformationMessageText);
-                        
-                        // Only hide warnings if suppression is global, since hide command does not support file or symbol filter for now
-                        if (!file && !symbolName) {
-                            await vscode.commands.executeCommand('cppcheck-official.hideWarningType', diagnosticCode);
-                        }
                     } else {
                         vscode.window.showErrorMessage(`Failed to add suppression of ${diagnosticCode} to project file ${projectFileStore.getUri()?.toString()}`);
                     }
