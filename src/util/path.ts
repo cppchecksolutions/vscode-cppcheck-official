@@ -10,18 +10,24 @@ const pathVariableArgs = [
     '--rule-file',
 ];
 
-export function splitArgsAndResolvePaths(args: string) : Array<string> {
-    const result = args.split(" ").map((arg) => {
-        let cleanedArg = arg.replaceAll("\"","");
-        const isPathArgument = pathVariableArgs.some(a => cleanedArg.startsWith(a));
-        // Some arguments such as addon may be either a path or the name of a built in addon
+export function splitArgsAndResolvePaths(args: string): Array<string> {
+    // Separate arguments by spaces unless they are within double quotes
+    const parsedArgs = args.match(/(?:[^\s"]+|"[^"]*")+/g) ?? [];
+
+    return parsedArgs.map((arg) => {
+        const cleanedArg = arg.replaceAll('"', "");
+        const isPathArgument = pathVariableArgs.some((a) =>
+            cleanedArg.startsWith(a)
+        );
+
+        // Some arguments, such as addon, may be either a path or the name of a built-in addon.
         if (isPathArgument && looksLikePath(cleanedArg)) {
-            const splitArg = cleanedArg.split('=');
-            return `${splitArg[0]}=${resolvePath(splitArg[1])}`;
+            const splitArg = cleanedArg.split("=");
+            return `${splitArg[0]}=${resolvePath(splitArg.slice(1).join("="))}`;
         }
-        return arg;
+
+        return cleanedArg;
     });
-    return result;
 }
 
 export function looksLikePath(arg: string): boolean {

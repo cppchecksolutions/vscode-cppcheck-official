@@ -30,12 +30,24 @@ export function getFileType(path : string) {
     return splitFilePath[splitFilePath.length - 1]; 
 }
 
-export async function writeSuppressionToProjectFile(projectFileUri : vscode.Uri, warningType : String, file? : String, symbolName? : String) : Promise<boolean> {
+function escapeXml(value: string): string {
+    return value.replace(/[<>&"']/g, (char) => {
+        switch (char) {
+            case '<': return '&lt;';
+            case '>': return '&gt;';
+            case '&': return '&amp;';
+            case '"': return '&quot;';
+            case "'": return '&apos;';
+            default: return char;
+        }
+    });
+}
+
+export async function writeSuppressionToProjectFile(projectFileUri : vscode.Uri, warningType : string, file? : string, symbolName? : string) : Promise<boolean> {
     const fileType = getFileType(projectFileUri.toString());
     if (fileType !== 'cppcheck') {
         throw new Error(`Function writeSuppressionToProjectFile only supports writing to .cppcheck project files! Recieved file is of type .${fileType}`);
     }
-
     // Open project file with vscode workspace API
     const document = await vscode.workspace.openTextDocument(projectFileUri);
     const text = document.getText();
@@ -46,18 +58,20 @@ export async function writeSuppressionToProjectFile(projectFileUri : vscode.Uri,
     // If file or symbolName is specified we set up that part of the suppression block
     let options = '';
     if (file) {
-        options = ` file="${file}"`;
+        options = ` file="${escapeXml(file)}"`;
     }
     if (symbolName) {
-        options += ` symbolName="${symbolName}"`;
+        options += ` symbolName="${escapeXml(symbolName)}"`;
     }
 
     // Search for suppressions section
-    const match = /<suppressions\b[^>]*>([\s\S]*?)<\/suppressions>/m.exec(text);
+    const match = /<suppressions\b[^>]*(?:\/>|>([\s\S]*?)<\/suppressions>)/m.exec(text);
     if (match !== null) {
         // match !== null -> Suppressions section exists
         const closeIndex = text.indexOf("</suppressions>");
-        
+        if (closeIndex < 0) {
+            return false;
+        }
         // Determine indentation and construct the new suppression line
         const endOfSuppressionsBlockLine = document.lineAt(document.positionAt(closeIndex).line);
         const indentation = endOfSuppressionsBlockLine.text.match(/^\s*/)?.[0] ?? "    ";
@@ -69,7 +83,9 @@ export async function writeSuppressionToProjectFile(projectFileUri : vscode.Uri,
     } else {
         // match === null -> Suppressions section does not exist
         const closeIndex = text.indexOf("</project>");
-
+        if (closeIndex < 0) {
+            return false;
+        }
         // Determine indentation and construct the new suppressions block
         const line = document.lineAt(document.positionAt(closeIndex).line - 1);
         const indentation = line.text.match(/^\s*/)?.[0] ?? "    ";
