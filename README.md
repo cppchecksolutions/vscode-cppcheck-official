@@ -13,6 +13,7 @@
 - **Project file support**: You can feed your project file to cppcheck through the `--project` flag in the `cppcheck-official.arguments` field in the extension settings. (See image below)
 
 ![Image showing where to set up project file](./images/project_file.png)
+- **Full analysis**: Analyse every file in your project file at once. See [Full analysis](#full-analysis).
 - **Warning notes**: Display notes for warnings when those are available. See [Notes](#notes).
 - **Dynamic config**: The extension supports running a script to generate arguments to pass to cppcheck. This can be done by including the command in the argument field wrapped with \@(), e.g. `--suppress=memleak:src/file1.cpp @(bash path/to/script.sh)`. The script is expected to output the argument(s) wrapped with \@(). If the script e.g. creates a project file it should print out as `@(--project=path/to/projectfile.json)`. This output will be spliced into the argument string as such: `--suppress=memleak:src/file1.cpp --project=path/to/projectfile.json`.
 
@@ -115,6 +116,30 @@ Critical errors are always shown:
 - whatever the severity filter is set to.
 
 If a critical error has no valid line number, it is shown on the first line of the file.
+
+## Full analysis
+
+Normally the extension analyses only the files you open. A full analysis runs cppcheck on every file in your project file, and shows the warnings for all of them in the Problems panel, including files you haven't opened.
+
+### When it is available
+
+Full analysis needs a project file, given with `--project=…` in `cppcheck-official.arguments` or in `cppcheck.json`. Both `.cppcheck` project files and `compile_commands.json` work.
+
+The **Full Analysis** button appears in the status bar after a file has been analysed with a project file. It is hidden while an analysis is running.
+
+### Running it
+
+1. Click **Full Analysis** in the status bar.
+2. Choose how many threads cppcheck should use: 1, 2 or 4. This sets the cppcheck option `-j1`, `-j2` or `-j4`.
+
+While the analysis runs, the status bar shows **Cppcheck Running**. A full analysis can take a long time on a large project.
+
+### Results
+
+- All existing warnings are cleared before the full analysis starts.
+- The severity filter and hidden warning types apply to the results as usual.
+- The warnings stay in the Problems panel until the next full analysis, also for files that you never opened. Closing a file doesn't remove its warnings.
+- If a warning is in a file that VS Code can't open, it is skipped and an information message "Unable to find location of error [id]: …" is shown.
 
 ## Requirements
 
