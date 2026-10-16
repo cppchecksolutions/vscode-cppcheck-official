@@ -7,10 +7,6 @@ import { extractRelatedInformation } from '../helpers/diagnosticHelpers';
 import { splitArgsAndResolvePaths } from '../util/path';
 import { writeSuppressionToProjectFile } from '../util/files';
 
-// These tests describe the *expected* behaviour for a number of suspected bugs found in a code review.
-// Each test is expected to FAIL on the current code; a failing test means the suspected bug is real.
-// If the developer decides the current behaviour is intended, the test can simply be deleted or adjusted.
-
 suite('Related information', () => {
 	let dir: string;
 	let sourceFile: string;
@@ -26,9 +22,6 @@ suite('Related information', () => {
 	});
 
 	test('Extraction of related information from locations array', async () => {
-		// cppcheck --xml emits <location file=".." line="2" column="9" info=".."/>.
-		// extension.ts reads `mainLoc.column`, but extractRelatedInformation reads `loc.col`,
-		// so the column becomes Number(undefined) - 1 === NaN.
 		const locations = [
 			{ $: { info: 'Variable x', line: '2', column: '9', file: sourceFile } },
 			{ $: { info: 'Additional info', line: '3', column: '5', file: sourceFile } },
@@ -72,8 +65,6 @@ suite('Suspected bugs: writeSuppressionToProjectFile', () => {
 	});
 
 	test('XML special characters in file name are escaped', async () => {
-		// file/symbolName/warningType are interpolated straight into XML attributes.
-		// A '&' or '"' in a path produces an invalid project file.
 		const uri = writeProject('<?xml version="1.0"?>\n<project>\n    <paths/>\n</project>\n');
 		await writeSuppressionToProjectFile(uri, 'nullPointer', 'src/a&b "c".cpp');
 		const text = fs.readFileSync(uri.fsPath, 'utf8');
@@ -81,8 +72,6 @@ suite('Suspected bugs: writeSuppressionToProjectFile', () => {
 	});
 
 	test('Writing to broken project file returns false', async () => {
-		// text.indexOf("</project>") is -1, positionAt(-1) is position 0 and lineAt(line - 1) is lineAt(-1) -> RangeError.
-		// Better to return false so the caller can show "Failed to add suppression".
 		const uri = writeProject('not a project file');
 		const success = await writeSuppressionToProjectFile(uri, 'nullPointer');
 		assert.strictEqual(success, false);
