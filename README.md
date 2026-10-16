@@ -260,8 +260,53 @@ Cppcheck Premium works without extra setup. The extension detects Premium and ad
 
 To enable Premium checks, such as MISRA or CERT, add them to the arguments, e.g. `--premium=misra-c-2023` or `--premium=cert-c`. The available options are described in the [Premium manual](https://files.cppchecksolutions.com/manual.pdf#page=44).
 
+## Troubleshooting
+
+### Error messages
+
+**"Cppcheck: Could not find or run '…'. Please install cppcheck or set 'cppcheck-official.path' correctly."**
+Cppcheck isn't installed, or `cppcheck-official.path` points to the wrong file. Check that `cppcheck --version` works in a terminal. If it doesn't, install cppcheck or set `cppcheck-official.path` to the full path of the executable (see [Requirements](#requirements)).
+
+**"Cppcheck failed to start: …"**
+The executable was found but couldn't be started, for example because it isn't executable or you don't have permission to run it. The rest of the message comes from the operating system.
+
+**"Cppcheck failed with code N (unknown error), Command: …"** or **"cppcheck: error: …, Command: …"**
+Cppcheck ran but reported an error, for example an unknown option or a project file it can't read. The message ends with the full command line. Run that command in a terminal from the workspace folder to reproduce the error and see cppcheck's full output.
+
+**"cppcheck: error: could not find any files matching the filter"**
+This happens when a header file is open and the project file is `compile_commands.json`. A compilation database only lists source files, so cppcheck can't analyse a header file on its own. This is a known issue ([#112](https://github.com/cppchecksolutions/vscode-cppcheck-official/issues/112)). Until it is fixed you can ignore the message. Warnings in the header file are still shown when you analyse a source file that includes it, or when you run a [full analysis](#full-analysis).
+
+**"Cppcheck: Failed to read …/cppcheck.json: …"**
+`cppcheck.json` isn't valid JSON, isn't a JSON object, or `arguments` isn't a string or an array of strings. Until the file is fixed, the extension uses the `cppcheck-official.arguments` setting instead (see [Shared Settings File](#shared-settings-file)).
+
+**Analysis stops working after adding an `@(…)` script**
+The script failed, wrote something to stderr, or its output didn't contain `@(…)`. In any of these cases the analysis doesn't run. Run the command in a terminal from the workspace folder and check its output (see [Generating arguments with a script](#generating-arguments-with-a-script)). The error is logged in the **Extension Host** log (Output panel).
+
+**Cppcheck Premium licence problems**
+Problems with the Premium licence are reported as [critical errors](#critical-errors), e.g. `premium-invalidLicense`, in the analysed file. Check your licence with the Cppcheck Premium documentation or contact Cppcheck Solutions.
+
+### No warnings appear
+
+Check that:
+- The file is a C or C++ file (`C` or `C++` is shown in the status bar) and is visible in an editor. See [When analysis runs](#when-analysis-runs).
+- `cppcheck-official.enable` is `true`.
+- The severity filter (**Cppcheck severity: …** in the status bar) isn't hiding the warnings. Set it to **Info** to see everything. See [Severity filter](#severity-filter).
+- The warning type isn't hidden. If the status bar shows **Hidden types: N**, click it to show hidden types again. See [Code actions](#code-actions).
+- If you use a project file: the file is part of the project. Warnings in other files, such as headers, aren't shown with a project file by design. See [Warnings in header files and critical errors](#warnings-in-header-files-and-critical-errors).
+
+Running cppcheck in a terminal from the workspace folder, with the same command line the extension uses (see [The command line the extension runs](#the-command-line-the-extension-runs)), shows whether cppcheck itself reports the warning.
+
 ## Reporting Issues
 Please submit any issues or feature requests via the [GitHub Issues page](https://github.com/cppchecksolutions/vscode-cppcheck-official/issues).
+
+When you report a problem, please include:
+- The extension version (shown in the Extensions view).
+- The VS Code version (**Help > About**).
+- Your operating system.
+- The cppcheck version and edition (open source or Premium), from `cppcheck --version`.
+- Your `cppcheck-official.arguments` setting or your `cppcheck.json`.
+- The full error message, including the command line if it has one.
+- A small code example that shows the problem, if possible.
 
 ## Acknowledgements
 This plugin is forked from the plugin cppcheck-lite by Justus Rijke (https://github.com/JustusRijke/Cppcheck-Lite).
