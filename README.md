@@ -10,12 +10,12 @@
 - **Diagnostics for the analysed file and its headers**: Warnings for the analysed file are shown, together with warnings in the header files it includes (unless a project file is used, in which case only the analysed file's warnings are shown). Critical errors, such as `syntaxError`, are always shown. See [Warnings in header files and critical errors](#warnings-in-header-files-and-critical-errors).
 - **Configurable severity threshold**: Filter out messages below a chosen severity level (`info`, `warning`, or `error`). See [Severity filter](#severity-filter).
 - **Diagnostic cleanup**: When you close a file, its diagnostics are automatically cleared. Warnings in a header file stay as long as another open file that includes it is still open.
-- **Project file support**: You can feed your project file to cppcheck through the `--project` flag in the `cppcheck-official.arguments` field in the extension settings. (See image below)
+- **Project file support**: You can feed your project file to cppcheck through the `--project` flag in the `cppcheck-official.arguments` field in the extension settings. (See image below and [Project files](#project-files).)
 
 ![Image showing where to set up project file](./images/project_file.png)
 - **Full analysis**: Analyse every file in your project file at once. See [Full analysis](#full-analysis).
 - **Warning notes**: Display notes for warnings when those are available. See [Notes](#notes).
-- **Dynamic config**: The extension supports running a script to generate arguments to pass to cppcheck. This can be done by including the command in the argument field wrapped with \@(), e.g. `--suppress=memleak:src/file1.cpp @(bash path/to/script.sh)`. The script is expected to output the argument(s) wrapped with \@(). If the script e.g. creates a project file it should print out as `@(--project=path/to/projectfile.json)`. This output will be spliced into the argument string as such: `--suppress=memleak:src/file1.cpp --project=path/to/projectfile.json`.
+- **Dynamic config**: The extension supports running a script to generate arguments to pass to cppcheck. This can be done by including the command in the argument field wrapped with \@(), e.g. `--suppress=memleak:src/file1.cpp @(bash path/to/script.sh)`. The script is expected to output the argument(s) wrapped with \@(). If the script e.g. creates a project file it should print out as `@(--project=path/to/projectfile.json)`. This output will be spliced into the argument string as such: `--suppress=memleak:src/file1.cpp --project=path/to/projectfile.json`. See [Generating arguments with a script](#generating-arguments-with-a-script).
 
 - **Warning suppression**: Warnings of a specific type can be suppressed with the `--suppress` flag in the argument field in the extension settings. The extension also supports inline suppression for specific lines of code, simply write `// cppcheck-suppress <warning id>` (see image below). Suppressions can also be added through code actions, either as automatically generated inline suppressions or, if you are using a `.cppcheck` project file, as universal suppressions specified in your project file. Adding suppressions to the project file is not supported for `compile_commands.json` or other project types. See [Working with warnings](#working-with-warnings).
 ![Image showing how to suppress warnings](./images/suppression.png)
@@ -161,7 +161,7 @@ This extension contributes the following settings under `cppcheck-official.*`:
 - **`cppcheck-official.enable`**: (boolean) Enable or disable the extension.  
 - **`cppcheck-official.minSeverity`**: (string) Minimum severity to report (`info`, `warning`, or `error`).  `info` shows style, performance, portability and information messages.
 - **`cppcheck-official.arguments`**: (string) Additional command line arguments to pass to `cppcheck`. See the Cppcheck manual ([open source](https://cppcheck.sourceforge.io/manual.pdf#page=4) / [Premium](https://files.cppchecksolutions.com/manual.pdf#page=4)).  
-- **`cppcheck-official.path`**: (string) Path to the `cppcheck` executable (e.g. `/path/to/cppcheck.exe`). If left empty, `cppcheck` from the system PATH is used. Supports paths relative to workspace folder on the formats `./RELATIVE_PATH`, `../RELATIVE_PATH` or `${workspaceFolder}/RELATIVE_PATH`.
+- **`cppcheck-official.path`**: (string) Path to the `cppcheck` executable (e.g. `/path/to/cppcheck.exe`). If left empty, `cppcheck` from the system PATH is used. Supports `${workspaceFolder}`, `~` and paths relative to the workspace folder, e.g. `./RELATIVE_PATH`, `../RELATIVE_PATH` or `${workspaceFolder}/RELATIVE_PATH`. See [Paths](#paths).
 
 ## Shared Settings File
 
@@ -169,11 +169,96 @@ To give all developers in a project the same setup, create a `cppcheck.json` fil
 
 ```json
 {
-  "arguments": "--project=build/compile_commands.json --enable=style --suppress=missingInclude"
+  "arguments": "--project=build/compile_commands.json --suppress=missingInclude"
 }
 ```
 
 `arguments` can be either a string or an array of strings. If the file specifies `arguments`, it takes precedence over the `cppcheck-official.arguments` setting. Relative paths are resolved relative to the workspace folder. All other settings are still read from the VS Code settings, so each developer can adjust them individually.
+
+## Configuration
+
+### Where the arguments come from
+
+The extension reads the arguments for cppcheck from:
+1. `arguments` in `cppcheck.json` in the root of the first workspace folder, if the file exists and specifies `arguments` (see [Shared Settings File](#shared-settings-file)).
+2. Otherwise, the `cppcheck-official.arguments` setting.
+
+Separate arguments with spaces, e.g. `--project=build/compile_commands.json --suppress=missingInclude`.
+
+### The command line the extension runs
+
+The extension adds some flags of its own to your arguments. Without a project file, it runs:
+
+```
+cppcheck --enable=all --inline-suppr --xml <your arguments> --suppress=unusedFunction --suppress=missingInclude --suppress=missingIncludeSystem <file>
+```
+
+With a project file (`--project=…` in your arguments), it runs:
+
+```
+cppcheck --enable=all --inline-suppr --xml <your arguments> --file-filter=<file>
+```
+
+- `--enable=all` is always passed, so all checks are enabled. To reduce the number of warnings, use the [severity filter](#severity-filter) or [suppressions](#working-with-warnings).
+- `--inline-suppr` is always passed, so `// cppcheck-suppress <id>` comments always work.
+- `--xml` is used by the extension to read the results.
+- Without a project file, `unusedFunction`, `missingInclude` and `missingIncludeSystem` are suppressed, because they are mostly false positives when a single file is analysed on its own.
+- With Cppcheck Premium, `--premium=safety-off` is also added (see [Cppcheck Premium](#cppcheck-premium)).
+
+`<file>` is the file being analysed. A [full analysis](#full-analysis) runs `cppcheck --enable=all --inline-suppr --xml -j<threads> <your arguments>` without a file.
+
+### Project files
+
+Use `--project=<file>` to give cppcheck a project file. Cppcheck accepts a `.cppcheck` project file, `compile_commands.json` and the other project types described in the Cppcheck manual ([open source](https://cppcheck.sourceforge.io/manual.pdf#page=10) / [Premium](https://files.cppchecksolutions.com/manual.pdf#page=10)).
+
+When a project file is used:
+- The extension adds `--file-filter=<file>` instead of the file path and the three suppressions (see [above](#the-command-line-the-extension-runs)).
+- Only warnings in the analysed file are shown, apart from critical errors (see [Warnings in header files and critical errors](#warnings-in-header-files-and-critical-errors)).
+- With a `.cppcheck` project file, you can add suppressions to the project file from code actions (see [Code actions](#code-actions)).
+- You can run a [full analysis](#full-analysis).
+
+It's a good idea to use the same project file in VS Code and in your CI, so that both give the same results.
+
+### Paths
+
+Cppcheck runs with the first workspace folder as its working directory, so relative paths in the arguments are relative to that folder.
+
+For these options, the extension also expands `${workspaceFolder}`, `~`, `./` and `../`:
+- `--project`
+- `--addon`
+- `--suppressions-list`
+- `--include`
+- `--rule-file`
+
+A value is only treated as a path if it looks like one: it contains `/` or `\`, starts with `.`, or has a file extension. So `--addon=misra` (the name of a built-in addon) is passed on unchanged, while `--addon=misra.json` and `--addon=./my_addon.py` are resolved as paths.
+
+The `cppcheck-official.path` setting supports `${workspaceFolder}`, `~`, `./` and `../`. Any other relative path is relative to the workspace folder.
+
+### Generating arguments with a script
+
+You can let a command generate some of the arguments. Write `@(command)` in the arguments. Before each analysis, the extension runs the command and replaces `@(command)` with the command's output.
+
+The output must contain the arguments wrapped in `@(…)`. Only the text inside is used, so the command can print other text as well. For example, if the arguments are:
+
+```
+--suppress=memleak:src/file1.cpp @(bash scripts/cppcheck-args.sh)
+```
+
+and `scripts/cppcheck-args.sh` prints `@(--project=build/compile_commands.json)`, cppcheck gets:
+
+```
+--suppress=memleak:src/file1.cpp --project=build/compile_commands.json
+```
+
+- The command runs in a shell, with the first workspace folder as its working directory.
+- If the command writes anything to stderr, it counts as failed and the analysis doesn't run.
+- `${workspaceFolder}` is a path variable for the options listed under [Paths](#paths). It isn't script syntax, so don't wrap a path in `@(…)`.
+
+### Cppcheck Premium
+
+Cppcheck Premium works without extra setup. The extension detects Premium and adds `--premium=safety-off`.
+
+To enable Premium checks, such as MISRA or CERT, add them to the arguments, e.g. `--premium=misra-c-2023` or `--premium=cert-c`. The available options are described in the [Premium manual](https://files.cppchecksolutions.com/manual.pdf#page=44).
 
 ## Reporting Issues
 Please submit any issues or feature requests via the [GitHub Issues page](https://github.com/cppchecksolutions/vscode-cppcheck-official/issues).
