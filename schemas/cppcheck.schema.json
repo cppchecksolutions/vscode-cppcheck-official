@@ -2,13 +2,19 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "Cppcheck Official settings file",
   "description": "Shared settings for the Cppcheck Official VS Code extension. Settings in this file take precedence over the VS Code settings.",
+  "markdownDescription": "Shared settings for the Cppcheck Official VS Code extension. Commit this file to version control so that everyone uses the same setup. Settings in this file take precedence over the VS Code settings. See [Shared settings file](https://github.com/cppchecksolutions/vscode-cppcheck-official#shared-settings-file).",
   "type": "object",
   "properties": {
     "arguments": {
       "description": "Additional command line arguments for cppcheck. Overrides the 'cppcheck-official.arguments' setting. Paths are resolved relative to the workspace folder.",
+      "markdownDescription": "Additional command line arguments for cppcheck, as a string with the arguments separated by spaces or as an array of strings. Overrides the `cppcheck-official.arguments` setting. Relative paths are resolved relative to the workspace folder.\n\nExample: `\"--project=build/compile_commands.json --suppress=missingInclude\"` or `[\"--project=build/compile_commands.json\", \"--suppress=missingInclude\"]`.\n\nThe extension always adds `--enable=all --inline-suppr --xml`. See [Configuration](https://github.com/cppchecksolutions/vscode-cppcheck-official#configuration) and the Cppcheck manual ([open source](https://cppcheck.sourceforge.io/manual.pdf#page=4) / [Premium](https://files.cppchecksolutions.com/manual.pdf#page=4)).",
       "oneOf": [
         { "type": "string" },
         { "type": "array", "items": { "type": "string" } }
+      ],
+      "examples": [
+        "--project=build/compile_commands.json --suppress=missingInclude",
+        ["--project=build/compile_commands.json", "--suppress=missingInclude"]
       ]
     }
   },
