@@ -1,22 +1,22 @@
 # Cppcheck Official
 
 
-**Cppcheck Official** is a Visual Studio Code extension that runs [cppcheck](https://cppcheck.sourceforge.io/) against C/C++ files upon save and reports any warnings or errors in the Problems panel.
+**Cppcheck Official** is a Visual Studio Code extension that runs [cppcheck](https://cppcheck.sourceforge.io/) against C/C++ files when you open, save or switch to them, and reports any warnings or errors in the Problems panel.
 
 ![Image showing example of problem tab with warnings output from cppcheck](./images/check_result2.png)
 
 ## Features
-- **On-save linting**: When you save a c/cpp file, `cppcheck` is automatically run on that file.
-- **Per-file diagnostics**: Only diagnostics relevant to the saved file are displayed.
+- **Automatic analysis**: `cppcheck` runs automatically on a C/C++ file when you open it, save it or switch to its tab.
+- **Diagnostics for the analysed file and its headers**: Warnings for the analysed file are shown, together with warnings in the header files it includes (unless a project file is used, in which case only the analysed file's warnings are shown). Critical errors, such as `syntaxError`, are always shown.
 - **Configurable severity threshold**: Filter out messages below a chosen severity level (`info`, `warning`, or `error`).
-- **Diagnostic cleanup**: When you close a file, its diagnostics are automatically cleared.
+- **Diagnostic cleanup**: When you close a file, its diagnostics are automatically cleared. Warnings in a header file stay as long as another open file that includes it is still open.
 - **Project file support**: You can feed your project file to cppcheck through the `--project` flag in the `cppcheck-official.arguments` field in the extension settings. (See image below)
 
 ![Image showing where to set up project file](./images/project_file.png)
 - **Warning notes**: Display notes for warnings when those are available
 - **Dynamic config**: The extension supports running a script to generate arguments to pass to cppcheck. This can be done by including the command in the argument field wrapped with \@(), e.g. `--suppress=memleak:src/file1.cpp @(bash path/to/script.sh)`. The script is expected to output the argument(s) wrapped with \@(). If the script e.g. creates a project file it should print out as `@(--project=path/to/projectfile.json)`. This output will be spliced into the argument string as such: `--suppress=memleak:src/file1.cpp --project=path/to/projectfile.json`.
 
-- **Warning suppression**: Warnings of a specific type can be supressed with the --suppress flag in the argument field in the extension settings. The extension also supports inline suppression for specific lines of code, simply write `// cppcheck-suppress >warning id<` (see image below). Suppressions can also be added through code actions, either as automatically generated inline suppressions or, if you are using a project file, as universal suppressions specified in your project file.
+- **Warning suppression**: Warnings of a specific type can be suppressed with the `--suppress` flag in the argument field in the extension settings. The extension also supports inline suppression for specific lines of code, simply write `// cppcheck-suppress <warning id>` (see image below). Suppressions can also be added through code actions, either as automatically generated inline suppressions or, if you are using a `.cppcheck` project file, as universal suppressions specified in your project file. Adding suppressions to the project file is not supported for `compile_commands.json` or other project types.
 ![Image showing how to suppress warnings](./images/suppression.png)
 ## Requirements
 
@@ -37,8 +37,8 @@ This extension contributes the following settings under `cppcheck-official.*`:
 
 - **`cppcheck-official.enable`**: (boolean) Enable or disable the extension.  
 - **`cppcheck-official.minSeverity`**: (string) Minimum severity to report (`info`, `warning`, or `error`).  `info` shows style, performance, portability and information messages.
-- **`cppcheck-official.arguments`**: (string) Additional [command line arguments](https://cppcheck.sourceforge.io/manual.pdf?#page=5) to pass to `cppcheck`.  
-- **`cppcheck-official.path`**: (string) Path to the `cppcheck` executable (i.e. `/path/to/cppcheck.exe`). If left empty, `cppcheck` from the system PATH is used. Supports paths relative to workspace folder on the formats `./RELATIVE_PATH`, `../RELATIVE_PATH` or `${workspaceFolder}/RELATIVE_PATH`.
+- **`cppcheck-official.arguments`**: (string) Additional command line arguments to pass to `cppcheck`. See the Cppcheck manual ([open source](https://cppcheck.sourceforge.io/manual.pdf#page=4) / [Premium](https://files.cppchecksolutions.com/manual.pdf#page=4)).  
+- **`cppcheck-official.path`**: (string) Path to the `cppcheck` executable (e.g. `/path/to/cppcheck.exe`). If left empty, `cppcheck` from the system PATH is used. Supports paths relative to workspace folder on the formats `./RELATIVE_PATH`, `../RELATIVE_PATH` or `${workspaceFolder}/RELATIVE_PATH`.
 
 ## Shared Settings File
 

@@ -1,7 +1,7 @@
 {
   "name": "cppcheck-official",
   "displayName": "Cppcheck Official",
-  "description": "A Visual Studio Code extension that runs cppcheck on C/C++ files on save. Supported by the Cppcheck team.",
+  "description": "A Visual Studio Code extension that runs cppcheck on C/C++ files when they are opened, saved or switched to. Supported by the Cppcheck team.",
   "version": "1.0.16",
   "engines": {
     "vscode": "^1.96.0"
@@ -62,12 +62,12 @@
           "cppcheck-official.path": {
             "type": "string",
             "default": "",
-            "description": "Path to the cppcheck executable (i.e. `/path/to/cppcheck.exe`). If empty, uses 'cppcheck' from the system PATH."
+            "description": "Path to the cppcheck executable (e.g. `/path/to/cppcheck.exe`). If empty, uses 'cppcheck' from the system PATH."
           },
           "cppcheck-official.arguments": {
             "type": "string",
             "default": "",
-            "markdownDescription": "Additional command line arguments for cppcheck. Use spaces to separate multiple arguments. For documentation see: [Cppcheck documentation](https://files.cppchecksolutions.com/manual.pdf). Overridden by `arguments` in `cppcheck.json` in the workspace folder, if present.",
+            "markdownDescription": "Additional command line arguments for cppcheck. Use spaces to separate multiple arguments. For documentation see the Cppcheck manual ([open source](https://cppcheck.sourceforge.io/manual.pdf#page=4) / [Premium](https://files.cppchecksolutions.com/manual.pdf#page=4)). Overridden by `arguments` in `cppcheck.json` in the workspace folder, if present.",
             "description": "Additional command line arguments for cppcheck. Use spaces to separate multiple arguments."
           }
         }
