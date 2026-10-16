@@ -7,7 +7,7 @@
 
 ## Features
 - **Automatic analysis**: `cppcheck` runs automatically on a C/C++ file when you open it, save it or switch to its tab. See [When analysis runs](#when-analysis-runs).
-- **Diagnostics for the analysed file and its headers**: Warnings for the analysed file are shown, together with warnings in the header files it includes (unless a project file is used, in which case only the analysed file's warnings are shown). Critical errors, such as `syntaxError`, are always shown.
+- **Diagnostics for the analysed file and its headers**: Warnings for the analysed file are shown, together with warnings in the header files it includes (unless a project file is used, in which case only the analysed file's warnings are shown). Critical errors, such as `syntaxError`, are always shown. See [Warnings in header files and critical errors](#warnings-in-header-files-and-critical-errors).
 - **Configurable severity threshold**: Filter out messages below a chosen severity level (`info`, `warning`, or `error`). See [Severity filter](#severity-filter).
 - **Diagnostic cleanup**: When you close a file, its diagnostics are automatically cleared. Warnings in a header file stay as long as another open file that includes it is still open.
 - **Project file support**: You can feed your project file to cppcheck through the `--project` flag in the `cppcheck-official.arguments` field in the extension settings. (See image below)
@@ -89,6 +89,32 @@ Some warnings have several locations, for example "Either the condition … is r
 ### Links to checker documentation
 
 For some warning ids, the id in the Problems panel is a link. Click it to open the documentation for the checker, or the SEI CERT C rule that the checker relates to. For Cppcheck Premium `premium-cert-*` warnings, the id links to the matching SEI CERT C rule.
+
+## Warnings in header files and critical errors
+
+Analysing a source file can produce warnings in other files, usually the header files it includes. Whether these warnings are shown depends on whether you use a project file.
+
+### Without a project file
+
+- Warnings in an included header file are shown in the header file, not in the source file that includes it.
+- If several open source files produce warnings in the same header file, the header file shows all of them.
+- A header file's warnings stay while any source file that produced them is still open. They are cleared when the last of those source files is closed.
+- A warning in another file is only shown if VS Code can open that file.
+
+### With a project file
+
+If the arguments contain `--project=…`, only warnings in the analysed file itself are shown. Warnings in other files, including headers, are left out on purpose. Critical errors are the exception.
+
+### Critical errors
+
+Some errors mean that the analysis failed or is incomplete, so the results can't be trusted. Examples are a syntax error (`syntaxError`), a file that can't be found (`missingFile`), and an invalid Cppcheck Premium licence (`premium-invalidLicense`). Other critical errors are about unknown macros, `#error` directives, include nesting that is too deep, and internal cppcheck errors.
+
+Critical errors are always shown:
+- even when they are reported in another file,
+- even when a project file is used,
+- whatever the severity filter is set to.
+
+If a critical error has no valid line number, it is shown on the first line of the file.
 
 ## Requirements
 
