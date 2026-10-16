@@ -88,7 +88,7 @@
           {
             "id": "step1",
             "title": "Connect extension to your cppcheck executable",
-            "description": "",
+            "description": "Tell the extension where cppcheck is installed. Skip this step if `cppcheck` is on your system PATH.\n[Set path](command:workbench.action.openSettings?%5B%22cppcheck-official.path%22%5D)",
             "media": {
               "markdown": "walkthrough/path.md"
             },
@@ -99,18 +99,59 @@
           {
             "id": "step2",
             "title": "Customize settings",
-            "description": "",
+            "description": "Pass your own command line arguments to cppcheck, e.g. to suppress warnings or enable Cppcheck Premium checks.\n[Set up arguments](command:cppcheck-official.configureArguments)",
             "media": {
               "markdown": "walkthrough/arguments.md"
-            }
+            },
+            "completionEvents": [
+              "onSettingChanged:cppcheck-official.arguments"
+            ]
+          },
+          {
+            "id": "projectFile",
+            "title": "Use a project file or cppcheck.json",
+            "description": "Point cppcheck at a `.cppcheck` project file or `compile_commands.json`, and share the arguments with your team in `cppcheck.json`.\n[Read about project files](https://github.com/cppchecksolutions/vscode-cppcheck-official#project-files)",
+            "media": {
+              "markdown": "walkthrough/project.md"
+            },
+            "completionEvents": [
+              "onLink:https://github.com/cppchecksolutions/vscode-cppcheck-official#project-files"
+            ]
           },
           {
             "id": "step3",
             "title": "Try out the extension",
-            "description": "",
+            "description": "Open a C or C++ file and see the cppcheck warnings in the Problems panel.\n[Open the Problems panel](command:workbench.actions.view.problems)",
             "media": {
               "markdown": "walkthrough/test.md"
-            }
+            },
+            "completionEvents": [
+              "onView:workbench.panel.markers.view"
+            ]
+          },
+          {
+            "id": "handleWarnings",
+            "title": "Handle warnings",
+            "description": "Filter warnings by severity in the status bar, and hide or suppress warnings with code actions.\n[Select severity](command:cppcheck-official.selectMinSeverity)",
+            "media": {
+              "markdown": "walkthrough/warnings.md"
+            },
+            "completionEvents": [
+              "onCommand:cppcheck-official.selectMinSeverity",
+              "onCommand:cppcheck-official.hideWarning"
+            ]
+          },
+          {
+            "id": "fullAnalysis",
+            "title": "Run a full analysis",
+            "description": "Analyse every file in your project file at once with the Full Analysis button in the status bar. Needs a project file.\n[Read about full analysis](https://github.com/cppchecksolutions/vscode-cppcheck-official#full-analysis)",
+            "media": {
+              "markdown": "walkthrough/fullAnalysis.md"
+            },
+            "completionEvents": [
+              "onCommand:cppcheck-official.runFullAnalysis",
+              "onLink:https://github.com/cppchecksolutions/vscode-cppcheck-official#full-analysis"
+            ]
           }
         ]
       }
