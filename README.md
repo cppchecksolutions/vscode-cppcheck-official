@@ -6,7 +6,7 @@
 ![Image showing example of problem tab with warnings output from cppcheck](./images/check_result2.png)
 
 ## Features
-- **Automatic analysis**: `cppcheck` runs automatically on a C/C++ file when you open it, save it or switch to its tab.
+- **Automatic analysis**: `cppcheck` runs automatically on a C/C++ file when you open it, save it or switch to its tab. See [When analysis runs](#when-analysis-runs).
 - **Diagnostics for the analysed file and its headers**: Warnings for the analysed file are shown, together with warnings in the header files it includes (unless a project file is used, in which case only the analysed file's warnings are shown). Critical errors, such as `syntaxError`, are always shown.
 - **Configurable severity threshold**: Filter out messages below a chosen severity level (`info`, `warning`, or `error`).
 - **Diagnostic cleanup**: When you close a file, its diagnostics are automatically cleared. Warnings in a header file stay as long as another open file that includes it is still open.
@@ -18,6 +18,26 @@
 
 - **Warning suppression**: Warnings of a specific type can be suppressed with the `--suppress` flag in the argument field in the extension settings. The extension also supports inline suppression for specific lines of code, simply write `// cppcheck-suppress <warning id>` (see image below). Suppressions can also be added through code actions, either as automatically generated inline suppressions or, if you are using a `.cppcheck` project file, as universal suppressions specified in your project file. Adding suppressions to the project file is not supported for `compile_commands.json` or other project types.
 ![Image showing how to suppress warnings](./images/suppression.png)
+
+## When analysis runs
+
+The extension analyses one C/C++ file at a time. Analysis runs when:
+- You save a C or C++ file.
+- You open a C or C++ file.
+- You switch to a file's tab.
+- You open a file in a preview tab (for example with a single click in the Explorer). Analysis starts after a short delay if you stay on the file. The file's warnings are cleared when you switch to another editor.
+- VS Code starts or a workspace folder is added. All open C/C++ files are then analysed.
+
+Analysis is skipped when:
+- The file isn't a C or C++ file. The extension uses VS Code's language mode for this, so the file must be shown as `C` or `C++` in the status bar.
+- The file isn't visible in any editor.
+- The file content hasn't changed since the last successful analysis. The extension forgets the content when the file is closed, so reopening a file analyses it again.
+- `cppcheck-official.enable` is `false`. The file's warnings are cleared instead.
+
+Cppcheck analyses the file as it is saved on disk, not the unsaved content in the editor. Warnings for unsaved changes appear after you save the file.
+
+While an analysis runs, the status bar shows **Cppcheck Running**.
+
 ## Requirements
 
  **Cppcheck** must be installed on your system.
