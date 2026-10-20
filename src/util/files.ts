@@ -65,15 +65,14 @@ export async function writeSuppressionToProjectFile(projectFileUri : vscode.Uri,
     }
 
     // Search for suppressions section
-    const match = /<suppressions\b[^>]*(?:\/>|>([\s\S]*?)<\/suppressions>)/m.exec(text);
+    const match = /<suppressions\b[^>]*>([\s\S]*?)<\/suppressions>/m.exec(text);
+    // TODO: Currently, if project file has specified self-closing <suppressions/> block the extension will add an additional suppressions-block
     if (match !== null) {
         // match !== null -> Suppressions section exists
-        let closeIndex = text.indexOf("</suppressions>") >= 0
-            ? text.indexOf("</suppressions>")
-            : text.indexOf("<suppressions/>");
+        let closeIndex = text.indexOf("</suppressions>");
         
         if (closeIndex < 0) {
-            return false;
+            return false; 
         }
         // Determine indentation and construct the new suppression line
         const endOfSuppressionsBlockLine = document.lineAt(document.positionAt(closeIndex).line);

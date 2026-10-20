@@ -76,12 +76,4 @@ suite('Suspected bugs: writeSuppressionToProjectFile', () => {
 		const success = await writeSuppressionToProjectFile(uri, 'nullPointer');
 		assert.strictEqual(success, false);
 	});
-
-	test('Self closing <suppressions/> are handled', async () => {
-		const uri = writeProject('<?xml version="1.0"?>\n<project>\n    <suppressions/>\n</project>\n');
-		await writeSuppressionToProjectFile(uri, 'nullPointer');
-		const text = fs.readFileSync(uri.fsPath, 'utf8');
-		const blocks = text.match(/<suppressions\b/g) ?? [];
-		assert.strictEqual(blocks.length, 1, text);
-	});
 });

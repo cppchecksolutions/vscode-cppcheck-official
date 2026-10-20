@@ -750,7 +750,8 @@ async function runCppcheckOnFileXML(
     if (processedArgs.includes("--project=")) {
         usingProjectFile = true;
         args.push(`--file-filter=${filePath}`);
-        var projectFilePath = processedArgs.split('--project=')[1].split(' ')[0];
+        const projectFileArgument = argsParsed.find((a) => a.includes('--project=')) ?? '';
+        var projectFilePath = projectFileArgument.split('--project=')[1];
         const absoluteProjectFilePath = resolvePath(projectFilePath);
         projectFileStore.setUri(vscode.Uri.file(absoluteProjectFilePath));
     } else {
@@ -924,8 +925,8 @@ async function runFullAnalysis(
     // Resolve paths for arguments where applicable
     const argsParsed = splitArgsAndResolvePaths(processedArgs);
 
-    const projectFileArgument = argsParsed.find((a) => a.includes('--project')) ?? '';
-    var projectFilePath = projectFileArgument.split('=')[1];
+    const projectFileArgument = argsParsed.find((a) => a.includes('--project=')) ?? '';
+    var projectFilePath = projectFileArgument.split('--project=')[1];
     projectFileStore.clear();
     projectFileStore.setUri(vscode.Uri.file(projectFilePath));
 
