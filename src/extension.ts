@@ -924,7 +924,8 @@ async function runFullAnalysis(
     // Resolve paths for arguments where applicable
     const argsParsed = splitArgsAndResolvePaths(processedArgs);
 
-    var projectFilePath = processedArgs.split('--project=')[1].split(' ')[0];
+    const projectFileArgument = argsParsed.find((a) => a.includes('--project')) ?? '';
+    var projectFilePath = projectFileArgument.split('=')[1];
     projectFileStore.clear();
     projectFileStore.setUri(vscode.Uri.file(projectFilePath));
 

@@ -68,7 +68,10 @@ export async function writeSuppressionToProjectFile(projectFileUri : vscode.Uri,
     const match = /<suppressions\b[^>]*(?:\/>|>([\s\S]*?)<\/suppressions>)/m.exec(text);
     if (match !== null) {
         // match !== null -> Suppressions section exists
-        const closeIndex = text.indexOf("</suppressions>");
+        let closeIndex = text.indexOf("</suppressions>") >= 0
+            ? text.indexOf("</suppressions>")
+            : text.indexOf("<suppressions/>");
+        
         if (closeIndex < 0) {
             return false;
         }
