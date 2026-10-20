@@ -3,7 +3,7 @@ import { documentationLinkMap, getPremiumCertLink } from '../util/documentation'
 interface locationObject {
     info: string,
     line: string,
-    col: string,
+    column: string,
     file: string,
 }
 
@@ -33,7 +33,7 @@ export async function extractRelatedInformation(locations : Array<XmlAnalysisOut
         const loc = locations[locations.length - i].$;
         const msg = loc.info;
         const lLine = Number(loc.line) - 1;
-        const lCol = Number(loc.col) - 1;
+        const lCol = Number(loc.column) - 1;
 
         if (msg === null || msg === undefined || isNaN(lLine) || lLine < 0) {
             continue;
