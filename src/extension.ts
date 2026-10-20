@@ -249,6 +249,37 @@ export async function activate(context: vscode.ExtensionContext) {
         )
     );
     
+    // Register a command to browse for the cppcheck executable, linked from the path setting
+    context.subscriptions.push(
+        vscode.commands.registerCommand(
+            'cppcheck-official.browsePath',
+            async () => {
+                const config = vscode.workspace.getConfiguration('cppcheck-official');
+                const currentPath = config.get<string>('path', '');
+                const uris = await vscode.window.showOpenDialog({
+                    canSelectFiles: true,
+                    canSelectFolders: false,
+                    canSelectMany: false,
+                    title: 'Select the cppcheck executable',
+                    openLabel: 'Select',
+                    defaultUri: currentPath ? vscode.Uri.file(resolvePath(currentPath)) : undefined,
+                    filters: process.platform === 'win32' ? { 'Executables': ['exe'], 'All files': ['*'] } : undefined
+                });
+                // User cancels the dialog -> uris === undefined
+                if (!uris || uris.length === 0) {
+                    return;
+                }
+                await config.update('path', uris[0].fsPath, vscode.ConfigurationTarget.Global);
+                const inspected = config.inspect<string>('path');
+                if (inspected?.workspaceValue !== undefined || inspected?.workspaceFolderValue !== undefined) {
+                    vscode.window.showWarningMessage(
+                        `Cppcheck path saved to user settings, but it is overridden by the workspace setting '${inspected.workspaceFolderValue ?? inspected.workspaceValue}'.`
+                    );
+                }
+            }
+        )
+    );
+
     // Register a command for suppressing a warning type
     context.subscriptions.push(
         vscode.commands.registerCommand(

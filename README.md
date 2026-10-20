@@ -31,7 +31,7 @@
    - On macOS with Homebrew: `brew install cppcheck`.
    - On Windows: install from [cppcheck's website](https://cppcheck.sourceforge.io/).
 
-   By default, the extension looks for `cppcheck` on the system PATH. Alternatively, set the full path to the executable in the `cppcheck-official.path` setting.
+   By default, the extension looks for `cppcheck` on the system PATH. Alternatively, set the full path to the executable in the `cppcheck-official.path` setting, or click **Browse...** under the setting (or run **Cppcheck: Select Cppcheck Executable...** from the Command Palette) to pick the file.
 
    ![Image showing location of path setting](./images/cppcheck_path.png)
 2. **Install the extension.** Search for "Cppcheck Official" in the Extensions view.
