@@ -83,11 +83,8 @@ Settings are defined in `package.json` under `contributes.configuration`. When y
    code --install-extension cppcheck-official-<version>.vsix
    ```
 
-3. Publish to the VS Code Marketplace with `vsce publish`. This needs a personal access token for the `CppcheckSolutionsAB` publisher.
-4. Publish to [Open VSX](https://open-vsx.org/).
-
-   **TODO (David): describe how the extension is published to Open VSX.**
-
+3. Publish to the VS Code Marketplace with `vsce publish`. This needs a personal access token for the `CppcheckSolutionsAB` publisher. You can also upload the .vsix manually to VS Code Marketplace if you go to the manage view, find the extension and under `more actions...` click update.
+4. Publish to [Open VSX](https://open-vsx.org/). This is done through navigating to the `publish` page and simply uploading the .vsix file. The website will identify the extension and treat it as a new version of the already existing extension.
 5. Create a GitHub release with a tag named after the version (e.g. `1.0.17`) and the generated release notes ("What's Changed").
 
 ## History
