@@ -33,6 +33,13 @@
   ],
   "main": "./out/extension.js",
   "contributes": {
+    "commands": [
+      {
+        "command": "cppcheck-official.browsePath",
+        "title": "Select Cppcheck Executable...",
+        "category": "Cppcheck"
+      }
+    ],
     "configuration": [
       {
         "title": "Cppcheck (General)",
@@ -63,7 +70,7 @@
           "cppcheck-official.path": {
             "type": "string",
             "default": "",
-            "markdownDescription": "Path to the cppcheck executable, e.g. `C:\\Program Files\\Cppcheck\\cppcheck.exe` on Windows or `/usr/bin/cppcheck` on Linux and macOS. If empty, `cppcheck` from the system PATH is used.\n\nSupports `${workspaceFolder}`, `~`, `./` and `../`, e.g. `${workspaceFolder}/tools/cppcheck`. Other relative paths are relative to the workspace folder. See [Paths](https://github.com/cppchecksolutions/vscode-cppcheck-official#paths)."
+            "markdownDescription": "Path to the cppcheck executable, e.g. `C:\\Program Files\\Cppcheck\\cppcheck.exe` on Windows or `/usr/bin/cppcheck` on Linux and macOS. If empty, `cppcheck` from the system PATH is used.\n\nSupports `${workspaceFolder}`, `~`, `./` and `../`, e.g. `${workspaceFolder}/tools/cppcheck`. Other relative paths are relative to the workspace folder. See [Paths](https://github.com/cppchecksolutions/vscode-cppcheck-official#paths).\n\n[Browse...](command:cppcheck-official.browsePath) to select the executable and save it in the user settings."
           },
           "cppcheck-official.arguments": {
             "type": "string",
@@ -88,7 +95,7 @@
           {
             "id": "step1",
             "title": "Connect extension to your cppcheck executable",
-            "description": "Tell the extension where cppcheck is installed. Skip this step if `cppcheck` is on your system PATH.\n[Set path](command:workbench.action.openSettings?%5B%22cppcheck-official.path%22%5D)",
+            "description": "Tell the extension where cppcheck is installed. Skip this step if `cppcheck` is on your system PATH.\n[Browse for cppcheck](command:cppcheck-official.browsePath)",
             "media": {
               "markdown": "walkthrough/path.md"
             },

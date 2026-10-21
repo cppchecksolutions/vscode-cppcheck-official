@@ -249,6 +249,37 @@ export async function activate(context: vscode.ExtensionContext) {
         )
     );
     
+    // Register a command to browse for the cppcheck executable, linked from the path setting
+    context.subscriptions.push(
+        vscode.commands.registerCommand(
+            'cppcheck-official.browsePath',
+            async () => {
+                const config = vscode.workspace.getConfiguration('cppcheck-official');
+                const currentPath = config.get<string>('path', '');
+                const uris = await vscode.window.showOpenDialog({
+                    canSelectFiles: true,
+                    canSelectFolders: false,
+                    canSelectMany: false,
+                    title: 'Select the cppcheck executable',
+                    openLabel: 'Select',
+                    defaultUri: currentPath ? vscode.Uri.file(resolvePath(currentPath)) : undefined,
+                    filters: process.platform === 'win32' ? { 'Executables': ['exe'], 'All files': ['*'] } : undefined
+                });
+                // User cancels the dialog -> uris === undefined
+                if (!uris || uris.length === 0) {
+                    return;
+                }
+                await config.update('path', uris[0].fsPath, vscode.ConfigurationTarget.Global);
+                const inspected = config.inspect<string>('path');
+                if (inspected?.workspaceValue !== undefined || inspected?.workspaceFolderValue !== undefined) {
+                    vscode.window.showWarningMessage(
+                        `Cppcheck path saved to user settings, but it is overridden by the workspace setting '${inspected.workspaceFolderValue ?? inspected.workspaceValue}'.`
+                    );
+                }
+            }
+        )
+    );
+
     // Register a command for suppressing a warning type
     context.subscriptions.push(
         vscode.commands.registerCommand(
@@ -719,7 +750,8 @@ async function runCppcheckOnFileXML(
     if (processedArgs.includes("--project=")) {
         usingProjectFile = true;
         args.push(`--file-filter=${filePath}`);
-        var projectFilePath = processedArgs.split('--project=')[1].split(' ')[0];
+        const projectFileArgument = argsParsed.find((a) => a.includes('--project=')) ?? '';
+        var projectFilePath = projectFileArgument.split('--project=')[1];
         const absoluteProjectFilePath = resolvePath(projectFilePath);
         projectFileStore.setUri(vscode.Uri.file(absoluteProjectFilePath));
     } else {
@@ -893,7 +925,8 @@ async function runFullAnalysis(
     // Resolve paths for arguments where applicable
     const argsParsed = splitArgsAndResolvePaths(processedArgs);
 
-    var projectFilePath = processedArgs.split('--project=')[1].split(' ')[0];
+    const projectFileArgument = argsParsed.find((a) => a.includes('--project=')) ?? '';
+    var projectFilePath = projectFileArgument.split('--project=')[1];
     projectFileStore.clear();
     projectFileStore.setUri(vscode.Uri.file(projectFilePath));
 
