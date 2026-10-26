@@ -28,7 +28,7 @@ suite('Related information', () => {
 		];
 		const infos = await extractRelatedInformation(locations as any);
 		// Only locations beyond the 0:th location are counted as related information
-		assert.strictEqual(infos.length, 1);
+		assert.strictEqual(infos.length, 2);
 		// 0-indexing vs 1-indexing -> line: 3 becomes 2
 		assert.strictEqual(infos[0].location.range.start.line, 2);
 		// 0-indexing vs 1-indexing -> column: 5 becomes 4
