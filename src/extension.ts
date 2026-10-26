@@ -184,7 +184,7 @@ function getDocumentSha1(document: vscode.TextDocument): string {
 
 function clearFileRelationMap() {
     for (const fileUri of Object.keys(fileRelationMap)) {
-        fileRelationMap[fileUri].clear;
+        fileRelationMap[fileUri].clear();
     }
 }
 
@@ -198,6 +198,7 @@ export async function activate(context: vscode.ExtensionContext) {
     function filterDisplayedDiagnosticsBasedOnHiddenStatus() {
         // Make sure the hidden types filter has been applied
         applyHiddenTypesFilter();
+        diagnosticCollection.clear();
         uriDiagnosticsMap.forEach((diagnostics : vscode.Diagnostic[], uri : string) => {
             const filteredDiagnostics = diagnostics?.filter((diagnostic : vscode.Diagnostic) => {
                 var metadata = diagnosticMetadataStore.get(diagnostic);

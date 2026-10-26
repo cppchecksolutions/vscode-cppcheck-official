@@ -27,8 +27,12 @@ export function setUpDiagnostic(lineStart : number, colStart : number, lineEnd :
 }
 
 export async function extractRelatedInformation(locations : Array<XmlAnalysisOutput>) {
+    // Only extract relatedInfo for multi-location warnings
+    if (locations.length <= 1) {
+        return [];
+    }
     const relatedInfos: vscode.DiagnosticRelatedInformation[] = [];
-    for (let i = 1; i < locations.length; i++) {
+    for (let i = 1; i <= locations.length; i++) {
         // Related information is ordered in reverse in XML object
         const loc = locations[locations.length - i].$;
         const msg = loc.info;
