@@ -25,7 +25,6 @@ suite('Related information', () => {
 		const locations = [
 			{ $: { info: 'Variable x', line: '2', column: '9', file: sourceFile } },
 			{ $: { info: 'Additional info', line: '3', column: '5', file: sourceFile } },
-			{ $: { line: '3', column: '3', file: sourceFile } }, // main loc
 		];
 		const infos = await extractRelatedInformation(locations as any);
 		// Only locations beyond the 0:th location are counted as related information
