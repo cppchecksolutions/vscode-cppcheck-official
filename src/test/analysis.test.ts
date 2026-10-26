@@ -473,6 +473,7 @@ suite('Analysis', function () {
 			locations: [
 				{ file, line: 2, info: 'Assuming that condition is not redundant' },
 				{ file, line: 3, info: 'Null pointer dereference' },
+				{ file, line: 3 }, // Main loc
 			],
 		});
 
