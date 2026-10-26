@@ -1,4 +1,7 @@
 import * as vscode from 'vscode';
+import * as path from "path";
+import * as fs from 'fs';
+import * as xml2js from 'xml2js';
 
 export class ProjectFileStore {
     private projectFileUri : vscode.Uri | undefined;
@@ -109,4 +112,50 @@ export async function writeSuppressionToProjectFile(projectFileUri : vscode.Uri,
     // Write file
     await document.save();
     return success;
+}
+
+export async function isFileInCompilationDatabase(dbPath: string, filePath: string): Promise<boolean> {
+    try {
+        const entries = JSON.parse(await fs.promises.readFile(dbPath, 'utf8'));
+        const normalize = (p: string) => {
+            const n = path.normalize(p);
+            return process.platform === 'win32' ? n.toLowerCase() : n;
+        };
+        const target = normalize(filePath);
+        return entries.some((e: { file: string; directory?: string }) =>
+            normalize(path.resolve(e.directory ?? '', e.file)) === target);
+    } catch {
+        // If we cannot read or parse the database, let cppcheck decide
+        return true;
+    }
+}
+
+async function getImportedProjectPath(cppcheckProjectFile: string): Promise<string | undefined> {
+    try {
+        const content = await fs.promises.readFile(cppcheckProjectFile, 'utf8');
+        const parsed = await new xml2js.Parser({ explicitArray: true }).parseStringPromise(content);
+        const imported: unknown = parsed?.project?.importproject?.[0];
+        if (typeof imported !== 'string' || imported.trim() === '') {
+            return undefined;
+        }
+        const normalized = imported.trim().replaceAll('\\', '/');
+        return path.isAbsolute(normalized)
+            ? path.normalize(normalized)
+            : path.resolve(path.dirname(cppcheckProjectFile), normalized);
+    } catch {
+        // Unreadable or invalid XML: let cppcheck report the problem itself
+        return undefined;
+    }
+}
+
+export async function getCompilationDatabasePath(absoluteProjectFilePath: string): Promise<string | undefined> {
+    if (absoluteProjectFilePath.endsWith('.json')) {
+        return absoluteProjectFilePath;
+    }
+    if (absoluteProjectFilePath.endsWith('.cppcheck')) {
+        const imported = await getImportedProjectPath(absoluteProjectFilePath);
+        // <importproject> can also point to .sln / .vcxproj files, which this check does not handle
+        return imported?.endsWith('.json') ? imported : undefined;
+    }
+    return undefined;
 }

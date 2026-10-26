@@ -121,6 +121,14 @@ suite('Analysis', function () {
 		return file;
 	}
 
+    function writeCompileCommands(project: string, files: string[]) {
+        fs.writeFileSync(project, JSON.stringify(files.map(file => ({
+            directory: workDir,
+            file,
+            command: `c++ -c ${file}`
+        }))));
+    }
+
 	async function setSetting(key: string, value: string | undefined) {
 		await vscode.workspace.getConfiguration('cppcheck-official').update(key, value, vscode.ConfigurationTarget.Global);
 	}
@@ -277,7 +285,7 @@ suite('Analysis', function () {
 		test('compile_commands.json: regular analysis filters on the analyzed file', async () => {
 			const file = writeWorkFile('main.cpp');
 			const project = path.join(workDir, 'compile_commands.json');
-			fs.writeFileSync(project, '[]');
+			writeCompileCommands(project, [file]);
 			await setSetting('arguments', `--project=${project}`);
 			setReport([{ id: 'nullPointer', severity: 'error', msg: 'Null pointer dereference', locations: [{ file, line: 3 }] }]);
 
@@ -294,7 +302,7 @@ suite('Analysis', function () {
 		test('compile_commands.json: does not offer project file suppressions', async () => {
 			const file = writeWorkFile('main.cpp');
 			const project = path.join(workDir, 'compile_commands.json');
-			fs.writeFileSync(project, '[]');
+			writeCompileCommands(project, [file]);
 			await setSetting('arguments', `--project=${project}`);
 			setReport([{ id: 'nullPointer', severity: 'error', msg: 'Null pointer dereference', locations: [{ file, line: 3 }] }]);
 
@@ -309,7 +317,7 @@ suite('Analysis', function () {
 			const file = writeWorkFile('main.cpp');
 			const other = writeWorkFile('other.cpp');
 			const project = path.join(workDir, 'compile_commands.json');
-			fs.writeFileSync(project, '[]');
+			writeCompileCommands(project, [file]);
 			await setSetting('arguments', `--project=${project}`);
 			setReport([
 				{ id: 'nullPointer', severity: 'error', msg: 'Null pointer dereference', locations: [{ file, line: 3 }] },
