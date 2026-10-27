@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import * as path from "path";
 import * as fs from 'fs';
 import * as xml2js from 'xml2js';
+import { findWorkspaceRoot } from './path';
 
 export class ProjectFileStore {
     private projectFileUri : vscode.Uri | undefined;
@@ -121,9 +122,13 @@ export async function isFileInCompilationDatabase(dbPath: string, filePath: stri
             const n = path.normalize(p);
             return process.platform === 'win32' ? n.toLowerCase() : n;
         };
+        // cppcheck is spawned with this cwd, and it resolves a relative "directory" against its own cwd
+        const baseDir = findWorkspaceRoot() ?? process.cwd();
         const target = normalize(filePath);
-        return entries.some((e: { file: string; directory?: string }) =>
-            normalize(path.resolve(e.directory ?? '', e.file)) === target);
+        return entries.some((e: { file: string; directory?: string }) => {
+            const directory = path.resolve(baseDir, e.directory ?? '');
+            return normalize(path.resolve(directory, e.file)) === target;
+        });
     } catch {
         // If we cannot read or parse the database, let cppcheck decide
         return true;

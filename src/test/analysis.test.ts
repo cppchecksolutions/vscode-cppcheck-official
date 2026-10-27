@@ -4,6 +4,7 @@ import * as os from 'os';
 import * as path from 'path';
 import * as vscode from 'vscode';
 import { writeSuppressionToProjectFile } from '../util/files';
+import { findWorkspaceRoot } from '../util/path';
 
 // These tests run the real extension in the VS Code test host, but replace the cppcheck executable with a small
 // fake that records how it was called and prints a prepared XML report on stderr (like cppcheck --xml does).
@@ -328,6 +329,22 @@ suite('Analysis', function () {
 			await waitFor(() => cppcheckDiagnostics(document.uri).length === 1, 'one diagnostic');
 			assert.strictEqual(cppcheckDiagnostics(vscode.Uri.file(other)).length, 0);
 		});
+
+        test('compile_commands.json: relative directory entries are resolved like cppcheck does', async () => {
+            const file = writeWorkFile('main.cpp');
+            const project = path.join(workDir, 'compile_commands.json');
+            const base = findWorkspaceRoot() ?? process.cwd();
+            fs.writeFileSync(project, JSON.stringify([{
+                directory: path.relative(base, workDir),
+                file: 'main.cpp',
+                command: 'c++ -c main.cpp'
+            }]));
+            await setSetting('arguments', `--project=${project}`);
+            setReport([{ id: 'nullPointer', severity: 'error', msg: 'Null pointer dereference', locations: [{ file, line: 3 }] }]);
+
+            const document = await openAndAnalyze(file);
+            await waitFor(() => cppcheckDiagnostics(document.uri).length === 1, 'one diagnostic');
+        });
 
 		test('.cppcheck: regular analysis passes the project file and offers project suppressions', async () => {
 			const file = writeWorkFile('main.cpp');
