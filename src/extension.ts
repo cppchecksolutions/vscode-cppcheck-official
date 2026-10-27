@@ -722,9 +722,6 @@ async function runCppcheckOnFileXML(
     checksRunning = true;
     updateProgressIndicator();
 
-    // Clear existing diagnostics for this file
-    uriDiagnosticsMap.set(document.uri.toString(), []);
-
     // Replace backslashes (used in paths in Windows environment)
     const filePath = document.fileName.replaceAll('\\', '/');
     
@@ -733,21 +730,19 @@ async function runCppcheckOnFileXML(
 
     // Resolve paths for arguments where applicable
     const argsParsed = splitArgsAndResolvePaths(processedArgs);
-
-    let usingProjectFile = false;
-    projectFileStore.clear();
-
+    
     const args = [
         '--enable=all',
         '--inline-suppr',
         '--xml',
         ...argsParsed,
     ].filter(Boolean);
-
+    
     if (usesPremiumCppcheck) {
         args.push('--premium=safety-off');
     }
-
+    
+    let usingProjectFile = false;
     if (processedArgs.includes("--project=")) {
         const projectFileArgument = argsParsed.find((a) => a.includes('--project=')) ?? '';
         var projectFilePath = projectFileArgument.split('--project=')[1];
@@ -773,12 +768,16 @@ async function runCppcheckOnFileXML(
         args.push(`--file-filter=${filePath}`);
         projectFileStore.setUri(vscode.Uri.file(absoluteProjectFilePath));
     } else {
+        projectFileStore.clear();
         args.push(
         '--suppress=unusedFunction',
         '--suppress=missingInclude',
         '--suppress=missingIncludeSystem');
         args.push(filePath);
     }
+
+    // Clear existing diagnostics for this file
+    uriDiagnosticsMap.set(document.uri.toString(), []);
 
     let proc;
     const cwd = findWorkspaceRoot();
