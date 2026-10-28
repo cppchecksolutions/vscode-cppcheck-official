@@ -60,8 +60,14 @@ suite('Suspected bugs: writeSuppressionToProjectFile', () => {
 		dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cppcheck-project-'));
 	});
 
-	teardown(() => {
-		fs.rmSync(dir, { recursive: true, force: true });
+	teardown(async () => {
+		await vscode.commands.executeCommand('workbench.action.closeAllEditors');
+		try {
+			fs.rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+		} catch (err) {
+			// A leftover temp directory says nothing about the code under test
+			console.warn(`Could not remove ${dir}:`, err);
+		}
 	});
 
 	test('XML special characters in file name are escaped', async () => {
