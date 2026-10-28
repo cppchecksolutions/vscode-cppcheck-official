@@ -7,7 +7,7 @@ import { runCommand } from './util/scripts';
 import { resolvePath, findWorkspaceRoot, splitArgsAndResolvePaths } from './util/path';
 import { DiagnosticMetadataStore, diagnosticsUnion } from './util/diagnostics';
 import { CodeActionProvider } from './util/codeActions';
-import { ProjectFileStore, writeSuppressionToProjectFile } from './util/files';
+import { ProjectFileStore, writeSuppressionToProjectFile, isFileInCompilationDatabase, getCompilationDatabasePath } from './util/files';
 import { extractRelatedInformation, setUpDiagnostic } from './helpers/diagnosticHelpers';
 import { getArguments } from './util/settingsFile';
 
@@ -722,9 +722,6 @@ async function runCppcheckOnFileXML(
     checksRunning = true;
     updateProgressIndicator();
 
-    // Clear existing diagnostics for this file
-    uriDiagnosticsMap.set(document.uri.toString(), []);
-
     // Replace backslashes (used in paths in Windows environment)
     const filePath = document.fileName.replaceAll('\\', '/');
     
@@ -733,35 +730,54 @@ async function runCppcheckOnFileXML(
 
     // Resolve paths for arguments where applicable
     const argsParsed = splitArgsAndResolvePaths(processedArgs);
-
-    let usingProjectFile = false;
-    projectFileStore.clear();
-
+    
     const args = [
         '--enable=all',
         '--inline-suppr',
         '--xml',
         ...argsParsed,
     ].filter(Boolean);
-
+    
     if (usesPremiumCppcheck) {
         args.push('--premium=safety-off');
     }
-
+    
+    let usingProjectFile = false;
     if (processedArgs.includes("--project=")) {
-        usingProjectFile = true;
-        args.push(`--file-filter=${filePath}`);
         const projectFileArgument = argsParsed.find((a) => a.includes('--project=')) ?? '';
         var projectFilePath = projectFileArgument.split('--project=')[1];
         const absoluteProjectFilePath = resolvePath(projectFilePath);
+
+        var compilationDbPath;
+        if (absoluteProjectFilePath.endsWith('.json')) {
+            compilationDbPath = absoluteProjectFilePath;
+        } else if (absoluteProjectFilePath.endsWith('.cppcheck')) {
+            compilationDbPath = await getCompilationDatabasePath(absoluteProjectFilePath);
+        }
+
+        if (compilationDbPath) {
+            const inCompilationDb = await isFileInCompilationDatabase(compilationDbPath, document.fileName);
+            if (!inCompilationDb) {
+                // Not a translation unit of the project (e.g. a header), nothing to analyze on its own
+                checksRunning = false;
+                updateProgressIndicator();
+                return;
+            }
+        }
+        usingProjectFile = true;
+        args.push(`--file-filter=${filePath}`);
         projectFileStore.setUri(vscode.Uri.file(absoluteProjectFilePath));
     } else {
+        projectFileStore.clear();
         args.push(
         '--suppress=unusedFunction',
         '--suppress=missingInclude',
         '--suppress=missingIncludeSystem');
         args.push(filePath);
     }
+
+    // Clear existing diagnostics for this file
+    uriDiagnosticsMap.set(document.uri.toString(), []);
 
     let proc;
     const cwd = findWorkspaceRoot();
