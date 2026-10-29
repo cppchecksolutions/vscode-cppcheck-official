@@ -4,6 +4,7 @@ import * as os from 'os';
 import * as path from 'path';
 import * as vscode from 'vscode';
 import { extractRelatedInformation } from '../helpers/diagnosticHelpers';
+import { getPremiumCertLink } from '../util/documentation';
 import { splitArgsAndResolvePaths } from '../util/path';
 import { writeSuppressionToProjectFile } from '../util/files';
 
@@ -81,5 +82,72 @@ suite('Suspected bugs: writeSuppressionToProjectFile', () => {
 		const uri = writeProject('not a project file');
 		const success = await writeSuppressionToProjectFile(uri, 'nullPointer');
 		assert.strictEqual(success, false);
+	});
+});
+
+suite('getPremiumCertLink', () => {
+	const baseUrl = 'https://cmu-sei.github.io/secure-coding-standards/sei-cert-c-coding-standard/rules/';
+
+	test('Builds the link for a typical rule', () => {
+		assert.strictEqual(
+			getPremiumCertLink('premium-cert-arr37-c'),
+			`${baseUrl}arrays-arr/arr37-c`
+		);
+	});
+
+	// One case per entry in the category map, so a typo in any slug is caught
+	const categories: Array<[prefix: string, slug: string]> = [
+		['arr', 'arrays-arr'],
+		['str', 'characters-and-strings-str'],
+		['con', 'concurrency-con'],
+		['dcl', 'declarations-and-initialization-dcl'],
+		['env', 'environment-env'],
+		['err', 'error-handling-err'],
+		['exp', 'expressions-exp'],
+		['flp', 'floating-point-flp'],
+		['fio', 'input-output-fio'],
+		['int', 'integers-int'],
+		['mem', 'memory-management-mem'],
+		['win', 'microsoft-windows-win'],
+		['msc', 'miscellaneous-msc'],
+		['pos', 'posix-pos'],
+		['pre', 'preprocessor-pre'],
+		['sig', 'signals-sig'],
+	];
+
+	for (const [prefix, slug] of categories) {
+		test(`Category ${prefix} maps to ${slug}`, () => {
+			const rule = `${prefix}30-c`;
+			assert.strictEqual(getPremiumCertLink(`premium-cert-${rule}`), `${baseUrl}${slug}/${rule}`);
+		});
+	}
+
+	test('Returns an empty string for codes that are not premium CERT codes', () => {
+		assert.strictEqual(getPremiumCertLink('nullPointer'), '');
+		assert.strictEqual(getPremiumCertLink('premium-misra-c-2012-1.1'), '');
+		assert.strictEqual(getPremiumCertLink('arr37-c'), '');
+		assert.strictEqual(getPremiumCertLink(''), '');
+	});
+
+	test('Returns an empty string for an unknown category', () => {
+		assert.strictEqual(getPremiumCertLink('premium-cert-xyz12-c'), '');
+	});
+
+	test('Returns an empty string when nothing follows the prefix', () => {
+		assert.strictEqual(getPremiumCertLink('premium-cert-'), '');
+	});
+
+	test('Returns an empty string when the rule is too short to contain a category', () => {
+		assert.strictEqual(getPremiumCertLink('premium-cert-ar'), '');
+	});
+
+	test('Category matching is case sensitive', () => {
+		// Pins current behavior: cppcheck uses lower case ids, so upper case is treated as unknown
+		assert.strictEqual(getPremiumCertLink('premium-cert-ARR37-C'), '');
+	});
+
+	test('CERT C++ rules do not get a link', () => {
+		// The links point at the CERT C standard, and the C++ categories (e.g. ctr, oop) are not in the map
+		assert.strictEqual(getPremiumCertLink('premium-cert-ctr50-cpp'), '');
 	});
 });
