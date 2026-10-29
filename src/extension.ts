@@ -1,18 +1,18 @@
 import * as vscode from 'vscode';
 import * as cp from 'child_process';
 import * as xml2js from 'xml2js';
-import * as crypto from 'crypto';
 
 import { resolvePath, findWorkspaceRoot, splitArgsAndResolvePaths } from './util/path';
 import { DiagnosticMetadataStore, diagnosticsUnion } from './util/diagnostics';
 import { CodeActionProvider } from './util/codeActions';
 import { ProjectFileStore, writeSuppressionToProjectFile, isFileInCompilationDatabase, getCompilationDatabasePath } from './util/files';
-import { extractRelatedInformation, setUpDiagnostic } from './helpers/diagnosticHelpers';
+import { extractRelatedInformation, setUpDiagnostic, isCriticalWarning } from './helpers/diagnosticHelpers';
 import { processArguments, SeverityNumber, parseSeverity, severityToNumber } from './helpers/settingsHelpers';
 import { getArguments } from './util/settingsFile';
+import { DocumentHashMemory } from './util/documentHash';
 
-// To keep track of document changes we save hashed versions of their content to this record
-let documentHashMemory : Record<string, string> = {};
+// To keep track of document changes we save hashed versions of their content to documentHashMemory
+let documentHashMemory = new DocumentHashMemory;
 // To keep track of warnings for files created from analysis of other files we save their relations to fileRelationMap
 let fileRelationMap: Record<string, Set<string>> = {};
 // Create a map for storing all diagnostics, including hidden / filtered diagnostics. Key is file uri as a string
@@ -32,23 +32,6 @@ let hiddenTypesOption: vscode.StatusBarItem;
 let fullAnalysisStatusBarItem: vscode.StatusBarItem;
 let checksRunning = false;
 let usesPremiumCppcheck = false;
-
-const criticalWarningTypes = [
-    'cppcheckError',
-    'cppcheckLimit',
-    'includeNestedTooDeeply',
-    'internalAstError',
-    'instantiationError',
-    'internalError',
-    'missingFile',
-    'premium-internalError',
-    'premium-invalidArgument',
-    'premium-invalidLicense',
-    'preprocessorErrorDirective',
-    'syntaxError',
-    'unhandledChar',
-    'unknownMacro'
-];
 
 function mapDiagnostics(diagnostics : Record<string, vscode.Diagnostic[]>, sourceDocumentUri? : string) {
     for (const uri of Object.keys(diagnostics)) {
@@ -128,13 +111,6 @@ function updateHiddenWarningTypesOption(): void {
     hiddenTypesOption.text = `$(bell) Hidden types: ${hiddenTypesCount}`;
     hiddenTypesOption.tooltip = 'Select hidden warning types to reveal';
     hiddenTypesOption.show();
-}
-
-function getDocumentSha1(document: vscode.TextDocument): string {
-    return crypto
-        .createHash('sha1')
-        .update(document.getText(), 'utf8')
-        .digest('hex');
 }
 
 function clearFileRelationMap() {
@@ -541,7 +517,7 @@ export async function activate(context: vscode.ExtensionContext) {
                 }
             }
         }
-        documentHashMemory[doc.fileName] = '';
+        documentHashMemory.forget(doc);
     }
 
     async function handleDocument(document: vscode.TextDocument) {
@@ -553,9 +529,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
         if ((Object.keys(documentHashMemory) as Array<string>).includes(document.fileName)) {
             // Check file content against memory, if it has not changed since last check do early return
-            const newHash = getDocumentSha1(document);
-            const oldHash = documentHashMemory[document.fileName];
-            if (newHash === oldHash) {
+            if (documentHashMemory.isUnchanged(document)) {
                 return;
             }
         }
@@ -772,7 +746,6 @@ async function runCppcheckOnFileXML(
                 const errors = result?.results?.errors?.[0]?.error || [];
                 const diagnostics: Record<string, vscode.Diagnostic[]> = {};
                 for (const e of errors) {
-                    const isCriticalError = criticalWarningTypes.includes(e.$.id);
                     const locations = e.location || [];
                     if (!locations.length) {
                         continue;
@@ -780,7 +753,7 @@ async function runCppcheckOnFileXML(
 
                     const mainLoc = locations[locations.length - 1].$;
                     // If main location is not current file, we are not using a project file and warning is not critical then skip displaying warning
-                    if (!isCriticalError && usingProjectFile && !filePath.endsWith(mainLoc.file)) {
+                    if (!isCriticalWarning(e.$.id) && usingProjectFile && !filePath.endsWith(mainLoc.file)) {
                         continue;
                     }
 
@@ -795,7 +768,7 @@ async function runCppcheckOnFileXML(
                     let line = Number(mainLoc.line) - 1;
                     // Invalid line number usually means non-analysis output 
                     if (isNaN(line) || line < 0 || line >= document.lineCount) {
-                        if (isCriticalError) {
+                        if (isCriticalWarning(e.$.id)) {
                             line = 0;
                         } else {
                             continue;
@@ -809,7 +782,7 @@ async function runCppcheckOnFileXML(
                     }
 
                     const severity = parseSeverity(e.$.severity);
-                    if (!isCriticalError && severityToNumber(severity) < minSevNum) {
+                    if (!isCriticalWarning(e.$.id) && severityToNumber(severity) < minSevNum) {
                         continue;
                     }
 
@@ -863,8 +836,7 @@ async function runCppcheckOnFileXML(
 
             // If checks have run without error, save hashed document content to memory
             if (!code) {
-                const hashedContentOfFile = getDocumentSha1(document);
-                documentHashMemory[document.fileName] = hashedContentOfFile;
+                documentHashMemory.remember(document);
             }
         });
     });
@@ -952,7 +924,6 @@ async function runFullAnalysis(
                 const errors = result?.results?.errors?.[0]?.error || [];
                 const diagnostics: Record<string, vscode.Diagnostic[]> = {};
                 for (const e of errors) {
-                    const isCriticalError = criticalWarningTypes.includes(e.$.id);
                     const locations = e.location || [];
                     if (!locations.length) {
                         continue;
@@ -972,7 +943,7 @@ async function runFullAnalysis(
                     let line = Number(mainLoc.line) - 1;
                     // Invalid line number usually means non-analysis output 
                     if (isNaN(line) || line < 0 || line >= mainLocDocument.lineCount) {
-                        if (isCriticalError) {
+                        if (isCriticalWarning(e.$.id)) {
                             line = 0;
                         } else {
                             continue;
@@ -986,7 +957,7 @@ async function runFullAnalysis(
                     }
 
                     const severity = parseSeverity(e.$.severity);
-                    if (!isCriticalError && severityToNumber(severity) < minSevNum) {
+                    if (!isCriticalWarning(e.$.id) && severityToNumber(severity) < minSevNum) {
                         continue;
                     }
 
