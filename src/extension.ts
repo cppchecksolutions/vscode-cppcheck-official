@@ -3,12 +3,12 @@ import * as cp from 'child_process';
 import * as xml2js from 'xml2js';
 import * as crypto from 'crypto';
 
-import { runCommand } from './util/scripts';
 import { resolvePath, findWorkspaceRoot, splitArgsAndResolvePaths } from './util/path';
 import { DiagnosticMetadataStore, diagnosticsUnion } from './util/diagnostics';
 import { CodeActionProvider } from './util/codeActions';
 import { ProjectFileStore, writeSuppressionToProjectFile, isFileInCompilationDatabase, getCompilationDatabasePath } from './util/files';
 import { extractRelatedInformation, setUpDiagnostic } from './helpers/diagnosticHelpers';
+import { processArguments, SeverityNumber, parseSeverity, severityToNumber } from './helpers/settingsHelpers';
 import { getArguments } from './util/settingsFile';
 
 // To keep track of document changes we save hashed versions of their content to this record
@@ -32,12 +32,6 @@ let hiddenTypesOption: vscode.StatusBarItem;
 let fullAnalysisStatusBarItem: vscode.StatusBarItem;
 let checksRunning = false;
 let usesPremiumCppcheck = false;
-
-enum SeverityNumber {
-    Info = 0,
-    Warning = 1,
-    Error = 2
-}
 
 const criticalWarningTypes = [
     'cppcheckError',
@@ -74,45 +68,6 @@ function mapDiagnostics(diagnostics : Record<string, vscode.Diagnostic[]>, sourc
             // NOTE: uri can be the same as sourceDocumentUri
             fileRelationMap[uri].add(sourceDocumentUri);
         }
-    }
-}
-
-async function processArguments(args : string) {
-    // If user enter arguments as array we parse them into space separated string format
-    if (args.startsWith("[") && args.endsWith("]")) {
-        args = args.replaceAll("[", "").replaceAll("]", "").replaceAll(",", " ");
-    }
-    
-    var processedArgs = '';
-    // If argument field contains command to run script we do so here
-    if (args.includes('@(')) {
-        const scriptCommand = args.split("@(")[1].split(")")[0];
-        const scriptOutput = await runCommand(scriptCommand);
-        // We expect that the script output that is to be used as arguments will be wrapped with ${}
-        const scriptOutputTrimmed = scriptOutput.split("@(")[1].split(")")[0];
-        processedArgs = args.split("@(")[0] + scriptOutputTrimmed + args.split(")")?.[1];
-    } else {
-        processedArgs = args;
-    }
-    return processedArgs;
-}
-
-function parseSeverity(str: string): vscode.DiagnosticSeverity {
-    const lower = str.toLowerCase();
-    if (lower.includes("error")) {
-        return vscode.DiagnosticSeverity.Error;
-    } else if (lower.includes("warning")) {
-        return vscode.DiagnosticSeverity.Warning;
-    } else {
-        return vscode.DiagnosticSeverity.Information;
-    }
-}
-
-function severityToNumber(sev: vscode.DiagnosticSeverity): SeverityNumber {
-    switch (sev) {
-        case vscode.DiagnosticSeverity.Error: return SeverityNumber.Error;
-        case vscode.DiagnosticSeverity.Warning: return SeverityNumber.Warning;
-        default: return SeverityNumber.Info;
     }
 }
 
