@@ -3,7 +3,8 @@ import * as cp from 'child_process';
 import * as xml2js from 'xml2js';
 
 import { resolvePath, findWorkspaceRoot, splitArgsAndResolvePaths } from './util/path';
-import { DiagnosticMetadataStore, diagnosticsUnion } from './util/diagnostics';
+import { DiagnosticStore } from './util/diagnosticStore';
+import { StatusBar } from './util/statusBar';
 import { CodeActionProvider } from './util/codeActions';
 import { ProjectFileStore, writeSuppressionToProjectFile, isFileInCompilationDatabase, getCompilationDatabasePath } from './util/files';
 import { extractRelatedInformation, setUpDiagnostic, isCriticalWarning } from './helpers/diagnosticHelpers';
@@ -11,18 +12,11 @@ import { processArguments, SeverityNumber, parseSeverity, severityToNumber } fro
 import { getArguments } from './util/settingsFile';
 import { DocumentHashMemory } from './util/documentHash';
 
-// To keep track of document changes we save hashed versions of their content to documentHashMemory
-let documentHashMemory = new DocumentHashMemory;
-// To keep track of warnings for files created from analysis of other files we save their relations to fileRelationMap
-let fileRelationMap: Record<string, Set<string>> = {};
-// Create a map for storing all diagnostics, including hidden / filtered diagnostics. Key is file uri as a string
-let uriDiagnosticsMap: Map<string, vscode.Diagnostic[]> = new Map;
-// To keep track of hidden warning types we save them to the hiddenTypes set
-let hiddenTypes: Set<string> = new Set;
-// Some diagnostics have symbol names associated with them, which we keep track of in diagnosticMetadataStore
-const diagnosticMetadataStore = new DiagnosticMetadataStore();
-// The ProjectFileStore is usd to keep track of the users project file through different context
-const projectFileStore = new ProjectFileStore();
+let projectFileStore: ProjectFileStore;
+let diagnosticStore: DiagnosticStore;
+let documentHashMemory: DocumentHashMemory;
+let fileRelationMap: Record<string, Set<string>>;
+let statusBar: StatusBar;
 
 let previewAnalysisTimer: NodeJS.Timeout | undefined;
 let previewedDocument: vscode.TextDocument | undefined;
@@ -30,88 +24,7 @@ let cppcheckProgressIndicator: vscode.StatusBarItem;
 let severityOption: vscode.StatusBarItem;
 let hiddenTypesOption: vscode.StatusBarItem;
 let fullAnalysisStatusBarItem: vscode.StatusBarItem;
-let checksRunning = false;
 let usesPremiumCppcheck = false;
-
-function mapDiagnostics(diagnostics : Record<string, vscode.Diagnostic[]>, sourceDocumentUri? : string) {
-    for (const uri of Object.keys(diagnostics)) {
-        var newDiagnostics = diagnostics[uri];
-        // If file has existing diagnostics from analyzing other files we do not want to overwrite those
-        const existingDiagnostics = uriDiagnosticsMap.get(uri);
-        if (existingDiagnostics) {
-            newDiagnostics = diagnosticsUnion(newDiagnostics, existingDiagnostics.flat());
-        }
-        uriDiagnosticsMap.set(uri, newDiagnostics);
-
-        // If sourceDocumentUri is passed we keep track of file relations
-        if (sourceDocumentUri) {
-            if (fileRelationMap[uri] === null ||fileRelationMap[uri] === undefined) {
-                fileRelationMap[uri] = new Set;
-            }
-            // NOTE: uri can be the same as sourceDocumentUri
-            fileRelationMap[uri].add(sourceDocumentUri);
-        }
-    }
-}
-
-function setDiagnosticHiddenStatus(diagnostic : vscode.Diagnostic, hiddenStatus : boolean) {
-    var metadata = diagnosticMetadataStore.get(diagnostic);
-    const newMetaData = { ...metadata, hidden: hiddenStatus };
-    diagnosticMetadataStore.set(diagnostic, newMetaData);
-}
-
-function applyHiddenTypesFilter() {
-    hiddenTypes.forEach((warningType) => {
-        setHiddenStatusBasedOnType(warningType, true);
-    });
-}
-
-function setHiddenStatusBasedOnType(diagnosticCode : string, hidden : boolean) {
-    uriDiagnosticsMap.forEach((diagnostics : readonly vscode.Diagnostic[]) => {
-        diagnostics?.forEach((diagnostic : vscode.Diagnostic) => {
-            var code = diagnostic.code;
-            if (typeof(code) === "object" && typeof(code) !== null) {
-                code = code.value;
-            }
-            if (code === diagnosticCode) {
-                setDiagnosticHiddenStatus(diagnostic, hidden);
-            }
-        });
-    });
-}
-
-function updateProgressIndicator(): void {
-	if (checksRunning) {
-		cppcheckProgressIndicator.text = `$(loading~spin) Cppcheck Running ..`;
-		cppcheckProgressIndicator.show();
-        // To avoid crowding status bar we alternate between progress indicator and severity option item
-        severityOption.hide();
-        fullAnalysisStatusBarItem.hide();
-	} else {
-		cppcheckProgressIndicator.hide();
-        severityOption.show();
-        // If a project file exists, show full analysis status bar item
-        if (projectFileStore.getUri()) {
-            fullAnalysisStatusBarItem.show();
-        } else {
-            fullAnalysisStatusBarItem.hide();
-        }
-	}
-}
-
-function updateMinSeverityOption(): void {
-    const mode = vscode.workspace.getConfiguration('cppcheck-official').get<string>('minSeverity', 'info');
-    severityOption.text = `$(gear) Cppcheck severity: ${mode}`;
-    severityOption.tooltip = 'Select minimum level of warning severity for cppcheck analysis';
-    severityOption.show();
-}
-
-function updateHiddenWarningTypesOption(): void {
-    const hiddenTypesCount = hiddenTypes.size;
-    hiddenTypesOption.text = `$(bell) Hidden types: ${hiddenTypesCount}`;
-    hiddenTypesOption.tooltip = 'Select hidden warning types to reveal';
-    hiddenTypesOption.show();
-}
 
 function clearFileRelationMap() {
     for (const fileUri of Object.keys(fileRelationMap)) {
@@ -124,42 +37,23 @@ function clearFileRelationMap() {
 export async function activate(context: vscode.ExtensionContext) {    
     // Create a diagnostic collection.
     const diagnosticCollection = vscode.languages.createDiagnosticCollection("Cppcheck");
-    context.subscriptions.push(diagnosticCollection);
-    
-    function filterDisplayedDiagnosticsBasedOnHiddenStatus() {
-        // Make sure the hidden types filter has been applied
-        applyHiddenTypesFilter();
-        diagnosticCollection.clear();
-        uriDiagnosticsMap.forEach((diagnostics : vscode.Diagnostic[], uri : string) => {
-            const filteredDiagnostics = diagnostics?.filter((diagnostic : vscode.Diagnostic) => {
-                var metadata = diagnosticMetadataStore.get(diagnostic);
-                if (metadata?.hidden) {
-                    return false;
-                }
-                return true;
-            });
-            diagnosticCollection.set(vscode.Uri.parse(uri), filteredDiagnostics);
-        });
-    }
+    // Some diagnostics have symbol names associated with them, which we keep track of in diagnosticStore
+    diagnosticStore = new DiagnosticStore(diagnosticCollection);
+    // To keep track of document changes we save hashed versions of their content to documentHashMemory
+    documentHashMemory = new DocumentHashMemory;
+    // To keep track of warnings for files created from analysis of other files we save their relations to fileRelationMap
+    fileRelationMap = {};
+    // The ProjectFileStore is usd to keep track of the users project file through different context
+    projectFileStore = new ProjectFileStore();
+    statusBar = new StatusBar(projectFileStore);
 
-    function hideDiagnosticsBasedOnSeverityLevel(severity : vscode.DiagnosticSeverity) {
-        uriDiagnosticsMap.forEach((diagnostics : vscode.Diagnostic[]) => {
-            diagnostics?.forEach((diagnostic : vscode.Diagnostic) => {
-                if (severityToNumber(diagnostic.severity) < severityToNumber(severity)) {
-                    setDiagnosticHiddenStatus(diagnostic, true);
-                } else {
-                    setDiagnosticHiddenStatus(diagnostic, false);
-                }
-            });
-        });
-        filterDisplayedDiagnosticsBasedOnHiddenStatus();
-    }
+    context.subscriptions.push(diagnosticCollection);
 
     // Set up code actions provider
     context.subscriptions.push(
         vscode.languages.registerCodeActionsProvider(
             { pattern: "**/*" },
-            new CodeActionProvider(diagnosticMetadataStore, projectFileStore),
+            new CodeActionProvider(diagnosticStore, projectFileStore),
             {
                 providedCodeActionKinds: [
                     vscode.CodeActionKind.QuickFix
@@ -242,17 +136,17 @@ export async function activate(context: vscode.ExtensionContext) {
         vscode.commands.registerCommand(
             "cppcheck-official.hideWarning",
             async (uri : vscode.Uri, diagnosticCode : string, range : vscode.Range) => {
-                const diagnostics = uriDiagnosticsMap.get(uri.toString());
+                const diagnostics = diagnosticStore.getByUri(uri);
                 diagnostics?.forEach((diagnostic : vscode.Diagnostic) => {
                     var code = diagnostic.code;
                     if (typeof(code) === "object" && typeof(code) !== null) {
                         code = code.value;
                     }
                     if (code === diagnosticCode && diagnostic.range.isEqual(range)) {
-                        setDiagnosticHiddenStatus(diagnostic, true);
+                        diagnosticStore.setHidden(diagnostic, true);
                     }
                 });
-                filterDisplayedDiagnosticsBasedOnHiddenStatus();
+                diagnosticStore.refresh();
             }
         )
     );
@@ -262,10 +156,8 @@ export async function activate(context: vscode.ExtensionContext) {
         vscode.commands.registerCommand(
             "cppcheck-official.hideWarningType",
             async (diagnosticCode : string) => {
-                setHiddenStatusBasedOnType(diagnosticCode, true);
-                hiddenTypes.add(diagnosticCode);
-                updateHiddenWarningTypesOption();
-                filterDisplayedDiagnosticsBasedOnHiddenStatus();
+                diagnosticStore.hideType(diagnosticCode);
+                diagnosticStore.refresh();
             }
         )
     );
@@ -274,7 +166,7 @@ export async function activate(context: vscode.ExtensionContext) {
         vscode.commands.registerCommand(
             "cppcheck-official.suppressWarningAdvanced",
             async (diagnosticCode : string, doc : vscode.TextDocument, diagnostic : vscode.Diagnostic) => {
-                const storedSymbolName = diagnosticMetadataStore.get(diagnostic)?.symbolName;
+                const storedSymbolName = diagnosticStore.get(diagnostic)?.symbolName;
                 const symbolExistsForDiagnostic = !!storedSymbolName;
                 const file = await vscode.window.showInputBox(
                     {
@@ -358,9 +250,8 @@ export async function activate(context: vscode.ExtensionContext) {
                     );
                     
                 // Clear diagnostics below severity level selected from the problems tab
-                hideDiagnosticsBasedOnSeverityLevel(parseSeverity(selection.value));
-
-                updateMinSeverityOption();
+                diagnosticStore.applyMinSeverity(parseSeverity(selection.value));
+                diagnosticStore.refresh();
             }
         )
     );
@@ -423,8 +314,8 @@ export async function activate(context: vscode.ExtensionContext) {
                 );
 
                 const minSevString = config.get<string>("cppcheck-official.minSeverity", "info");
-                hideDiagnosticsBasedOnSeverityLevel(parseSeverity(minSevString));
-                filterDisplayedDiagnosticsBasedOnHiddenStatus();
+                diagnosticStore.applyMinSeverity(parseSeverity(minSevString));
+                diagnosticStore.refresh();
                 // Analysis in runFullAnalysis populates uriDiagnosticsMap with all warnings, regardless of min severity filter.
                 // Thus after running analysis we have to apply the severity filter (this also populates DiagnosticCollection, making the diagnostics visible)
             }
@@ -435,7 +326,7 @@ export async function activate(context: vscode.ExtensionContext) {
         vscode.commands.registerCommand(
             "cppcheck-official.revealHiddenTypes",
             async () => {
-                const currentHiddenTypes = Array.from(hiddenTypes);
+                const currentHiddenTypes = Array.from(diagnosticStore.getHiddenTypes());
                 const selection = await vscode.window.showQuickPick(
                     currentHiddenTypes.map((type) => {
                         return {
@@ -450,12 +341,9 @@ export async function activate(context: vscode.ExtensionContext) {
                 if (!selection) {
                     return;
                 }
-                
-                hiddenTypes.delete(selection.value);
-                setHiddenStatusBasedOnType(selection.value, false);
-                filterDisplayedDiagnosticsBasedOnHiddenStatus();
-
-                updateHiddenWarningTypesOption();
+                diagnosticStore.revealType(selection.value);
+                diagnosticStore.refresh();
+                statusBar.setHiddenTypesCount(diagnosticStore.hiddenTypeCount);
             }
         )
     );
@@ -470,13 +358,13 @@ export async function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(
         vscode.workspace.onDidChangeConfiguration(event => {
             if (event.affectsConfiguration("cppcheck-official.selectMinSeverity")) {
-                updateMinSeverityOption();
+                statusBar.updateMinSeverity();
             }
         })
     );
 
     // Call update function once at setup to set the UI text to the settings current value
-    updateMinSeverityOption();
+    statusBar.updateMinSeverity();
     
     // Hidden types option status bar item
     hiddenTypesOption = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 8);
@@ -484,13 +372,13 @@ export async function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(
         vscode.workspace.onDidChangeConfiguration(event => {
             if (event.affectsConfiguration("cppcheck-official.revealHiddenTypes")) {
-                updateHiddenWarningTypesOption();
+                diagnosticStore.refresh();
             }
         })
     );
     
     // Call update function once at setup to set the UI text to the settings current value
-    updateHiddenWarningTypesOption();
+    diagnosticStore.refresh();
 
     // Full analysis status bar item
     fullAnalysisStatusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 8);
@@ -501,24 +389,6 @@ export async function activate(context: vscode.ExtensionContext) {
         fullAnalysisStatusBarItem.show();
     }
     context.subscriptions.push(fullAnalysisStatusBarItem);
-
-    function clearDiagnosticForDoc(doc: vscode.TextDocument): void {
-        // Any file who was warnings generated from (and only from) the closed doc have their diagnostics cleared
-        // NOTE: This includes the closed doc - its diagnostics will only be cleared if its warnings only come from analysis of it itself
-        for (const fileUri of Object.keys(fileRelationMap)) {
-            if (fileRelationMap[fileUri].has(doc.uri.toString())) {
-                if (fileRelationMap[fileUri].size <= 1) {
-                    uriDiagnosticsMap.delete(fileUri);
-                    diagnosticCollection.delete(vscode.Uri.parse(fileUri));
-                    fileRelationMap[fileUri].clear();
-                    filterDisplayedDiagnosticsBasedOnHiddenStatus();
-                } else {
-                    fileRelationMap[fileUri].delete(doc.uri.toString());
-                }
-            }
-        }
-        documentHashMemory.forget(doc);
-    }
 
     async function handleDocument(document: vscode.TextDocument) {
         // Only process C/C++ files.
@@ -552,7 +422,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
         // If disabled, clear any existing diagnostics for this doc.
         if (!isEnabled) {
-            clearDiagnosticForDoc(document);
+            diagnosticStore.clearForDocument(document.uri.toString());
             return;
         }
 
@@ -577,8 +447,8 @@ export async function activate(context: vscode.ExtensionContext) {
         // Analysis in runCppcheckOnFileXML populates uriDiagnosticsMap with all warnings, regardless of min severity filter.
         // Thus after running analysis we have to apply the severity filter (this also populates DiagnosticCollection, making the diagnostics visible)
         const minSevString = config.get<string>("cppcheck-official.minSeverity", "info");
-        hideDiagnosticsBasedOnSeverityLevel(parseSeverity(minSevString));
-        filterDisplayedDiagnosticsBasedOnHiddenStatus();
+        diagnosticStore.applyMinSeverity(parseSeverity(minSevString));
+        diagnosticStore.refresh();
     }
 
     // Listen for file saves.
@@ -616,7 +486,7 @@ export async function activate(context: vscode.ExtensionContext) {
                     vscode.workspace.textDocuments.find(
                         doc => doc.uri.toString() === uri.toString()
                     ) ?? await vscode.workspace.openTextDocument(uri);
-                clearDiagnosticForDoc(document);
+                diagnosticStore.clearForDocument(document.uri.toString());
             }
         }
     }, null, context.subscriptions);
@@ -624,7 +494,7 @@ export async function activate(context: vscode.ExtensionContext) {
     // Clear diagnostics of previewed files when no longer viewed
     vscode.window.onDidChangeActiveTextEditor(() => {
         if (previewedDocument) {
-            clearDiagnosticForDoc(previewedDocument);
+            diagnosticStore.clearForDocument(previewedDocument.uri.toString());
             previewedDocument = undefined;
         }
     });
@@ -639,7 +509,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
     // Clean up diagnostics when a file is closed
     vscode.workspace.onDidCloseTextDocument((document: vscode.TextDocument) => {
-        clearDiagnosticForDoc(document);
+        diagnosticStore.clearForDocument(document.uri.toString());
     }, null, context.subscriptions);
 }
 
@@ -648,8 +518,7 @@ async function runCppcheckOnFileXML(
     commandPath: string,
     processedArgs: string,
 ): Promise<void> {
-    checksRunning = true;
-    updateProgressIndicator();
+    statusBar.setRunning(true);
 
     // Replace backslashes (used in paths in Windows environment)
     const filePath = document.fileName.replaceAll('\\', '/');
@@ -688,8 +557,7 @@ async function runCppcheckOnFileXML(
             const inCompilationDb = await isFileInCompilationDatabase(compilationDbPath, document.fileName);
             if (!inCompilationDb) {
                 // Not a translation unit of the project (e.g. a header), nothing to analyze on its own
-                checksRunning = false;
-                updateProgressIndicator();
+                statusBar.setRunning(false);
                 return;
             }
         }
@@ -706,7 +574,7 @@ async function runCppcheckOnFileXML(
     }
 
     // Clear existing diagnostics for this file
-    uriDiagnosticsMap.set(document.uri.toString(), []);
+    diagnosticStore.clearForDocument(document.uri.toString());
 
     let proc;
     const cwd = findWorkspaceRoot();
@@ -795,7 +663,7 @@ async function runCppcheckOnFileXML(
                     const colEnd = mainLocDocument ? mainLocDocument.lineAt(line).text.length : col;
                     const diagnostic = setUpDiagnostic(line, col, line, colEnd, e.$.id, e.$.msg, severity);
 
-                    diagnosticMetadataStore.set(diagnostic, { symbolName, mainLocLine, hidden: false });
+                    diagnosticStore.track(diagnostic, { symbolName, mainLocLine });
 
                     // Parse Related Information
                     const relatedInfos: vscode.DiagnosticRelatedInformation[] = await extractRelatedInformation(locations);
@@ -829,7 +697,7 @@ async function runCppcheckOnFileXML(
                 }
                 // Map diagnostics to the uriDiagnosticsMap
                 const sourceDocumentUri = document.uri.toString();
-                mapDiagnostics(diagnostics, sourceDocumentUri);
+                diagnosticStore.add(diagnostics, sourceDocumentUri);
 
                 resolve();
             });
@@ -841,8 +709,7 @@ async function runCppcheckOnFileXML(
         });
     });
 
-    checksRunning = false;
-    updateProgressIndicator();
+    statusBar.setRunning(false);
 }
 
 async function runFullAnalysis(
@@ -854,11 +721,10 @@ async function runFullAnalysis(
         throw new Error("Full analysis called without specified project file!");
     }
 
-    checksRunning = true;
-    updateProgressIndicator();
+    statusBar.setRunning(true);
 
     // Clear existing diagnostics for all files
-    uriDiagnosticsMap.clear();
+    diagnosticStore.clearAll();
 
     // Clear file relation map when we run full analysis
     clearFileRelationMap();
@@ -970,7 +836,7 @@ async function runFullAnalysis(
                     const colEnd = mainLocDocument ? mainLocDocument.lineAt(line).text.length : col;
                     const diagnostic = setUpDiagnostic(line, col, line, colEnd, e.$.id, e.$.msg, severity);
                     
-                    diagnosticMetadataStore.set(diagnostic, { symbolName, mainLocLine, hidden: false });
+                    diagnosticStore.track(diagnostic, { symbolName, mainLocLine });
 
                     // Parse Related Information
                     const relatedInfos: vscode.DiagnosticRelatedInformation[] = await extractRelatedInformation(locations);
@@ -986,16 +852,14 @@ async function runFullAnalysis(
                     diagnostics[uri].push(diagnostic);
                 }
 
-                // Map diagnostics to the uriDiagnosticsMap
-                mapDiagnostics(diagnostics);
+                diagnosticStore.add(diagnostics);
 
                 resolve();
             });
         });
     });
 
-    checksRunning = false;
-    updateProgressIndicator();
+    statusBar.setRunning(false);
 }
 
 // This method is called when your extension is deactivated
