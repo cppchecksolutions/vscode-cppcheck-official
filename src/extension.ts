@@ -15,39 +15,29 @@ import { DocumentHashMemory } from './util/documentHash';
 let projectFileStore: ProjectFileStore;
 let diagnosticStore: DiagnosticStore;
 let documentHashMemory: DocumentHashMemory;
-let fileRelationMap: Record<string, Set<string>>;
 let statusBar: StatusBar;
 
 let previewAnalysisTimer: NodeJS.Timeout | undefined;
 let previewedDocument: vscode.TextDocument | undefined;
-let cppcheckProgressIndicator: vscode.StatusBarItem;
-let severityOption: vscode.StatusBarItem;
-let hiddenTypesOption: vscode.StatusBarItem;
-let fullAnalysisStatusBarItem: vscode.StatusBarItem;
 let usesPremiumCppcheck = false;
-
-function clearFileRelationMap() {
-    for (const fileUri of Object.keys(fileRelationMap)) {
-        fileRelationMap[fileUri].clear();
-    }
-}
 
 // This method is called when your extension is activated.
 // Your extension is activated the very first time the command is executed.
 export async function activate(context: vscode.ExtensionContext) {    
     // Create a diagnostic collection.
     const diagnosticCollection = vscode.languages.createDiagnosticCollection("Cppcheck");
-    // Some diagnostics have symbol names associated with them, which we keep track of in diagnosticStore
+    context.subscriptions.push(diagnosticCollection);
+    
+    // We keep track of diagnostics + their meta data in diagnosticStore
     diagnosticStore = new DiagnosticStore(diagnosticCollection);
     // To keep track of document changes we save hashed versions of their content to documentHashMemory
     documentHashMemory = new DocumentHashMemory;
-    // To keep track of warnings for files created from analysis of other files we save their relations to fileRelationMap
-    fileRelationMap = {};
     // The ProjectFileStore is usd to keep track of the users project file through different context
     projectFileStore = new ProjectFileStore();
+    
     statusBar = new StatusBar(projectFileStore);
+    context.subscriptions.push(statusBar);
 
-    context.subscriptions.push(diagnosticCollection);
 
     // Set up code actions provider
     context.subscriptions.push(
@@ -136,17 +126,7 @@ export async function activate(context: vscode.ExtensionContext) {
         vscode.commands.registerCommand(
             "cppcheck-official.hideWarning",
             async (uri : vscode.Uri, diagnosticCode : string, range : vscode.Range) => {
-                const diagnostics = diagnosticStore.getByUri(uri);
-                diagnostics?.forEach((diagnostic : vscode.Diagnostic) => {
-                    var code = diagnostic.code;
-                    if (typeof(code) === "object" && typeof(code) !== null) {
-                        code = code.value;
-                    }
-                    if (code === diagnosticCode && diagnostic.range.isEqual(range)) {
-                        diagnosticStore.setHidden(diagnostic, true);
-                    }
-                });
-                diagnosticStore.refresh();
+                diagnosticStore.hideWarning(uri.toString(), diagnosticCode, range);
             }
         )
     );
@@ -157,7 +137,7 @@ export async function activate(context: vscode.ExtensionContext) {
             "cppcheck-official.hideWarningType",
             async (diagnosticCode : string) => {
                 diagnosticStore.hideType(diagnosticCode);
-                diagnosticStore.refresh();
+                statusBar.setHiddenTypesCount(diagnosticStore.hiddenTypeCount);
             }
         )
     );
@@ -251,7 +231,7 @@ export async function activate(context: vscode.ExtensionContext) {
                     
                 // Clear diagnostics below severity level selected from the problems tab
                 diagnosticStore.applyMinSeverity(parseSeverity(selection.value));
-                diagnosticStore.refresh();
+                statusBar.updateMinSeverity();
             }
         )
     );
@@ -315,9 +295,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
                 const minSevString = config.get<string>("cppcheck-official.minSeverity", "info");
                 diagnosticStore.applyMinSeverity(parseSeverity(minSevString));
-                diagnosticStore.refresh();
-                // Analysis in runFullAnalysis populates uriDiagnosticsMap with all warnings, regardless of min severity filter.
-                // Thus after running analysis we have to apply the severity filter (this also populates DiagnosticCollection, making the diagnostics visible)
+                statusBar.updateMinSeverity();
             }
         )
     );
@@ -342,22 +320,14 @@ export async function activate(context: vscode.ExtensionContext) {
                     return;
                 }
                 diagnosticStore.revealType(selection.value);
-                diagnosticStore.refresh();
                 statusBar.setHiddenTypesCount(diagnosticStore.hiddenTypeCount);
             }
         )
     );
 
-    // ProgressIndicator status bar item to show when checks are running
-	cppcheckProgressIndicator = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 10);
-	context.subscriptions.push(cppcheckProgressIndicator);
-
-    // Severity option status bar item
-    severityOption = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 9);
-    severityOption.command = "cppcheck-official.selectMinSeverity";
     context.subscriptions.push(
         vscode.workspace.onDidChangeConfiguration(event => {
-            if (event.affectsConfiguration("cppcheck-official.selectMinSeverity")) {
+            if (event.affectsConfiguration("cppcheck-official.minSeverity")) {
                 statusBar.updateMinSeverity();
             }
         })
@@ -365,30 +335,6 @@ export async function activate(context: vscode.ExtensionContext) {
 
     // Call update function once at setup to set the UI text to the settings current value
     statusBar.updateMinSeverity();
-    
-    // Hidden types option status bar item
-    hiddenTypesOption = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 8);
-    hiddenTypesOption.command = "cppcheck-official.revealHiddenTypes";
-    context.subscriptions.push(
-        vscode.workspace.onDidChangeConfiguration(event => {
-            if (event.affectsConfiguration("cppcheck-official.revealHiddenTypes")) {
-                diagnosticStore.refresh();
-            }
-        })
-    );
-    
-    // Call update function once at setup to set the UI text to the settings current value
-    diagnosticStore.refresh();
-
-    // Full analysis status bar item
-    fullAnalysisStatusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 8);
-    fullAnalysisStatusBarItem.command = "cppcheck-official.runFullAnalysis";
-    fullAnalysisStatusBarItem.text = `$(play) Full Analysis`;
-    // If a project file exists, show full analysis status bar item
-    if (projectFileStore.getUri()) {
-        fullAnalysisStatusBarItem.show();
-    }
-    context.subscriptions.push(fullAnalysisStatusBarItem);
 
     async function handleDocument(document: vscode.TextDocument) {
         // Only process C/C++ files.
@@ -397,11 +343,9 @@ export async function activate(context: vscode.ExtensionContext) {
             return;
         }
 
-        if ((Object.keys(documentHashMemory) as Array<string>).includes(document.fileName)) {
-            // Check file content against memory, if it has not changed since last check do early return
-            if (documentHashMemory.isUnchanged(document)) {
-                return;
-            }
+        // Check file content against memory, if it has not changed since last check do early return
+        if (documentHashMemory.isUnchanged(document)) {
+            return;
         }
 
         // Check if the document is visible in any editor
@@ -423,6 +367,7 @@ export async function activate(context: vscode.ExtensionContext) {
         // If disabled, clear any existing diagnostics for this doc.
         if (!isEnabled) {
             diagnosticStore.clearForDocument(document.uri.toString());
+            documentHashMemory.forget(document);
             return;
         }
 
@@ -444,11 +389,9 @@ export async function activate(context: vscode.ExtensionContext) {
             processedArgs,
         );
 
-        // Analysis in runCppcheckOnFileXML populates uriDiagnosticsMap with all warnings, regardless of min severity filter.
-        // Thus after running analysis we have to apply the severity filter (this also populates DiagnosticCollection, making the diagnostics visible)
         const minSevString = config.get<string>("cppcheck-official.minSeverity", "info");
         diagnosticStore.applyMinSeverity(parseSeverity(minSevString));
-        diagnosticStore.refresh();
+        statusBar.updateMinSeverity();
     }
 
     // Listen for file saves.
@@ -487,6 +430,7 @@ export async function activate(context: vscode.ExtensionContext) {
                         doc => doc.uri.toString() === uri.toString()
                     ) ?? await vscode.workspace.openTextDocument(uri);
                 diagnosticStore.clearForDocument(document.uri.toString());
+                documentHashMemory.forget(document);
             }
         }
     }, null, context.subscriptions);
@@ -495,6 +439,7 @@ export async function activate(context: vscode.ExtensionContext) {
     vscode.window.onDidChangeActiveTextEditor(() => {
         if (previewedDocument) {
             diagnosticStore.clearForDocument(previewedDocument.uri.toString());
+            documentHashMemory.forget(previewedDocument);
             previewedDocument = undefined;
         }
     });
@@ -510,6 +455,7 @@ export async function activate(context: vscode.ExtensionContext) {
     // Clean up diagnostics when a file is closed
     vscode.workspace.onDidCloseTextDocument((document: vscode.TextDocument) => {
         diagnosticStore.clearForDocument(document.uri.toString());
+        documentHashMemory.forget(document);
     }, null, context.subscriptions);
 }
 
@@ -545,6 +491,7 @@ async function runCppcheckOnFileXML(
         const projectFileArgument = argsParsed.find((a) => a.includes('--project=')) ?? '';
         var projectFilePath = projectFileArgument.split('--project=')[1];
         const absoluteProjectFilePath = resolvePath(projectFilePath);
+        projectFileStore.setUri(vscode.Uri.file(absoluteProjectFilePath));
 
         var compilationDbPath;
         if (absoluteProjectFilePath.endsWith('.json')) {
@@ -563,7 +510,6 @@ async function runCppcheckOnFileXML(
         }
         usingProjectFile = true;
         args.push(`--file-filter=${filePath}`);
-        projectFileStore.setUri(vscode.Uri.file(absoluteProjectFilePath));
     } else {
         projectFileStore.clear();
         args.push(
@@ -574,7 +520,8 @@ async function runCppcheckOnFileXML(
     }
 
     // Clear existing diagnostics for this file
-    diagnosticStore.clearForDocument(document.uri.toString());
+    diagnosticStore.resetFile(document.uri.toString());
+    documentHashMemory.forget(document);
 
     let proc;
     const cwd = findWorkspaceRoot();
@@ -695,7 +642,6 @@ async function runCppcheckOnFileXML(
                         }
                     }
                 }
-                // Map diagnostics to the uriDiagnosticsMap
                 const sourceDocumentUri = document.uri.toString();
                 diagnosticStore.add(diagnostics, sourceDocumentUri);
 
@@ -725,9 +671,6 @@ async function runFullAnalysis(
 
     // Clear existing diagnostics for all files
     diagnosticStore.clearAll();
-
-    // Clear file relation map when we run full analysis
-    clearFileRelationMap();
 
     // We always call cppcheck with severity level info, and then filter warnings when displaying them
     const minSevNum = SeverityNumber.Info;

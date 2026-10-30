@@ -1,7 +1,7 @@
 // util/diagnosticStore.ts
 import * as vscode from 'vscode';
 import { diagnosticsUnion, getDiagnosticCode } from './diagnostics';
-import { severityToNumber, SeverityNumber } from '../helpers/settingsHelpers';
+import { severityToNumber } from '../helpers/settingsHelpers';
 
 export interface DiagnosticMetadata {
     symbolName?: string;
@@ -68,10 +68,6 @@ export class DiagnosticStore implements DiagnosticMetadataReader {
         this.diagnosticsByUri.set(uri, []);
     }
 
-    setHidden(diagnostic: vscode.Diagnostic, hidden: boolean) {
-        this.metadata.set(diagnostic, { ...this.metadata.get(diagnostic), hidden });
-    }
-
     hideWarning(uri: string, code: string, range: vscode.Range) {
         this.diagnosticsByUri.get(uri)?.forEach(d => {
             if (getDiagnosticCode(d) === code && d.range.isEqual(range)) {
@@ -130,6 +126,10 @@ export class DiagnosticStore implements DiagnosticMetadataReader {
                 diagnostics.filter(d => !this.get(d)?.hidden)
             );
         });
+    }
+
+    private setHidden(diagnostic: vscode.Diagnostic, hidden: boolean) {
+        this.metadata.set(diagnostic, { ...this.metadata.get(diagnostic), hidden });
     }
 
     private setHiddenByType(code: string, hidden: boolean) {
