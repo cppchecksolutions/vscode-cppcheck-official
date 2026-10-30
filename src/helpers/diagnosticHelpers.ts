@@ -11,6 +11,25 @@ interface XmlAnalysisOutput {
     $: locationObject;
 }
 
+const criticalWarningTypes = [
+    'cppcheckError',
+    'cppcheckLimit',
+    'includeNestedTooDeeply',
+    'internalAstError',
+    'instantiationError',
+    'internalError',
+    'missingFile',
+    'premium-internalError',
+    'premium-invalidArgument',
+    'premium-invalidLicense',
+    'preprocessorErrorDirective',
+    'syntaxError',
+    'unhandledChar',
+    'unknownMacro'
+];
+
+export const isCriticalWarning = (id: string) => criticalWarningTypes.includes(id);
+
 export function setUpDiagnostic(lineStart : number, colStart : number, lineEnd : number, colEnd : number, warningId : string, warningMessage : string, severity : vscode.DiagnosticSeverity) {
     const range = new vscode.Range(lineStart, colStart, lineEnd, colEnd);
     const diagnostic = new vscode.Diagnostic(range, warningMessage, severity);

@@ -1,9 +1,10 @@
 import * as vscode from 'vscode';
-import { DiagnosticMetadataStore, filterDiagnosticsDuplicatesForLine } from './diagnostics';
+import { filterDiagnosticsDuplicatesForLine } from './diagnostics';
+import { DiagnosticStore } from './diagnosticStore';
 import { ProjectFileStore } from './files';
 export class CodeActionProvider implements vscode.CodeActionProvider {
     constructor(
-        private readonly metadataStore: DiagnosticMetadataStore,
+        private readonly diagnosticStore: DiagnosticStore,
         private readonly projectFileStore: ProjectFileStore
     ) {}
     provideCodeActions(
@@ -26,7 +27,7 @@ export class CodeActionProvider implements vscode.CodeActionProvider {
 
             const mainLocLineNumber = diagnostic.range.start.line;
             const lineText = document.lineAt(mainLocLineNumber).text;
-            const expectedLineText = this.metadataStore.get(diagnostic)?.mainLocLine;
+            const expectedLineText = this.diagnosticStore.get(diagnostic)?.mainLocLine;
 
             // If document has been edited so that diagnostic no longer refers to the correct line we don't provide code actions
             if (lineText !== expectedLineText) {
@@ -130,7 +131,7 @@ export class CodeActionProvider implements vscode.CodeActionProvider {
                 actions.push(suppressTypeAction);
 
                 // Set up an action for suppressing warning based on file or symbol name
-                const symbol = this.metadataStore.get(diagnostic)?.symbolName;
+                const symbol = this.diagnosticStore.get(diagnostic)?.symbolName;
                 const suppressAdvancedAction = new vscode.CodeAction(
                     symbol
                     ? `Suppress warning ${diagnosticCode} based on file and / or symbol`
