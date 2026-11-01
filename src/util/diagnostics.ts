@@ -1,21 +1,8 @@
 import * as vscode from 'vscode';
 
-interface DiagnosticMetadata {
-    symbolName?: string;
-    mainLocLine?: string;
-    hidden: boolean;
-}
-
-export class DiagnosticMetadataStore {
-    private readonly map = new WeakMap<vscode.Diagnostic, DiagnosticMetadata>();
-
-    set(diagnostic: vscode.Diagnostic, metadata: DiagnosticMetadata) {
-        this.map.set(diagnostic, metadata);
-    }
-
-    get(diagnostic: vscode.Diagnostic) {
-        return this.map.get(diagnostic);
-    }
+export function getDiagnosticCode(diagnostic: vscode.Diagnostic): string | number | undefined {
+    const code = diagnostic.code;
+    return typeof code === 'object' ? code.value : code;
 }
 
 export function filterDiagnosticsDuplicatesForLine(diagnostics: readonly vscode.Diagnostic[]) {
