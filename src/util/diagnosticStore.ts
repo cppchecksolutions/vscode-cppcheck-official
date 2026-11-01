@@ -45,10 +45,6 @@ export class DiagnosticStore implements DiagnosticMetadataReader {
         return this.metadata.get(diagnostic);
     }
 
-    getByUri(uri: vscode.Uri): vscode.Diagnostic[] | undefined {
-        return this.diagnosticsByUri.get(uri.toString());
-    }
-
     // Call once for every diagnostic created from cppcheck output (was metadataStore.set with hidden: false)
     track(diagnostic: vscode.Diagnostic, info: { symbolName?: string; mainLocLine?: string }) {
         this.metadata.set(diagnostic, { ...info, hidden: false });
