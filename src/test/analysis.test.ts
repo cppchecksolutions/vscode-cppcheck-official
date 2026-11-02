@@ -30,12 +30,16 @@ const fakeCppcheckSource = `
     const fs = require('fs');
     const args = process.argv.slice(2);
     if (args.includes('--version')) {
-        console.log('Cppcheck 2.99');
+        console.log(process.env.FAKE_CPPCHECK_VERSION || 'Cppcheck 2.99');
         process.exit(0);
     }
     process.on('exit', () => fs.appendFileSync(process.env.FAKE_CPPCHECK_LOG + '.done', 'done\\n'));
     fs.appendFileSync(process.env.FAKE_CPPCHECK_LOG, JSON.stringify(args) + '\\n');
     process.stderr.write(fs.readFileSync(process.env.FAKE_CPPCHECK_XML, 'utf8'));
+    if (process.env.FAKE_CPPCHECK_STDOUT) {
+        process.stdout.write(process.env.FAKE_CPPCHECK_STDOUT);
+    }
+    process.exitCode = Number(process.env.FAKE_CPPCHECK_EXIT || 0);
 `;
 
 const sampleSource = [
@@ -130,10 +134,6 @@ suite('Analysis', function () {
         }))));
     }
 
-	async function setSetting(key: string, value: string | undefined) {
-		await vscode.workspace.getConfiguration('cppcheck-official').update(key, value, vscode.ConfigurationTarget.Global);
-	}
-
 	// Opens the file in an editor and saves a modified version of it, which triggers an analysis
 	async function openAndAnalyze(file: string) {
 		const document = await vscode.workspace.openTextDocument(file);
@@ -187,6 +187,101 @@ suite('Analysis', function () {
         }, 'cppcheck analyses to settle');
     }
 
+	async function setSetting(key: string, value: unknown) {
+		await vscode.workspace.getConfiguration('cppcheck-official').update(key, value, vscode.ConfigurationTarget.Global);
+	}
+
+	const hasWorkspace = () => (vscode.workspace.workspaceFolders?.length ?? 0) > 0;
+	const cppcheckConfig = () => vscode.workspace.getConfiguration('cppcheck-official');
+	const emptyProject = '<?xml version="1.0"?>\n<project version="1">\n    <paths>\n        <dir name="."/>\n    </paths>\n</project>\n';
+
+	// Stubs of vscode.window functions, restored in teardown
+	const stubbedWindowFunctions = new Map<string, unknown>();
+	function stubWindow(name: string, implementation: (...args: any[]) => unknown) {
+		const target = vscode.window as unknown as Record<string, unknown>;
+		if (!stubbedWindowFunctions.has(name)) {
+			stubbedWindowFunctions.set(name, target[name]);
+		}
+		target[name] = implementation;
+	}
+	function restoreWindow() {
+		const target = vscode.window as unknown as Record<string, unknown>;
+		for (const [name, original] of stubbedWindowFunctions) {
+			target[name] = original;
+		}
+		stubbedWindowFunctions.clear();
+	}
+	function captureMessages() {
+		const messages = { error: [] as string[], info: [] as string[], warning: [] as string[] };
+		stubWindow('showErrorMessage', (m: string) => { messages.error.push(m); return Promise.resolve(undefined); });
+		stubWindow('showInformationMessage', (m: string) => { messages.info.push(m); return Promise.resolve(undefined); });
+		stubWindow('showWarningMessage', (m: string) => { messages.warning.push(m); return Promise.resolve(undefined); });
+		return messages;
+	}
+
+	// For asserting that something did NOT happen
+	const quietPeriod = () => new Promise(resolve => setTimeout(resolve, 500));
+
+	// Like openAndAnalyze, but does not wait for cppcheck to be called
+	async function editAndSave(file: string) {
+		const document = await vscode.workspace.openTextDocument(file);
+		await vscode.window.showTextDocument(document);
+		const edit = new vscode.WorkspaceEdit();
+		edit.insert(document.uri, document.positionAt(document.getText().length), '\n');
+		await vscode.workspace.applyEdit(edit);
+		await document.save();
+		return document;
+	}
+
+	// The version check is not awaited by the extension, so a change in version output only takes effect on a later run
+	async function runUntilPremiumFlag(run: () => Promise<unknown>, expected: boolean) {
+		for (let attempt = 0; attempt < 10; attempt++) {
+			await run();
+			if (lastInvocation().includes('--premium=safety-off') === expected) {
+				return;
+			}
+		}
+		assert.fail(`--premium=safety-off was ${expected ? 'never' : 'still'} passed to cppcheck`);
+	}
+
+	async function analyzeWithProjectFile(projectContent: string) {
+		const file = writeWorkFile('main.cpp');
+		const project = path.join(workDir, 'project-file.cppcheck');
+		fs.writeFileSync(project, projectContent);
+		await setSetting('arguments', `--project=${project}`);
+		setReport([
+			{ id: 'nullPointer', severity: 'error', msg: 'Null pointer dereference', locations: [{ file, line: 3 }] },
+			{ id: 'uninitvar', severity: 'error', msg: 'Uninitialized variable: x', locations: [{ file, line: 5 }], symbol: 'x' },
+		]);
+		const document = await openAndAnalyze(file);
+		await waitFor(() => cppcheckDiagnostics(document.uri).length === 2, 'two diagnostics');
+		return { project, document };
+	}
+
+	// Positions that cppcheck can report but that do not exist in the file
+	function positionReport(file: string): CppcheckError[] {
+		return [
+			{ id: 'unreadVariable', severity: 'style', msg: 'Line outside the file', locations: [{ file, line: 999 }] },
+			{ id: 'knownConditionTrueFalse', severity: 'warning', msg: 'Line is not a number', locations: [{ file, line: NaN }] },
+			{ id: 'syntaxError', severity: 'error', msg: 'Critical, line is zero', locations: [{ file, line: 0, column: 0 }] },
+			{ id: 'nullPointer', severity: 'error', msg: 'Column outside the line', locations: [{ file, line: 3, column: 500 }] },
+			{ id: 'uninitvar', severity: 'error', msg: 'Column is not a number', locations: [{ file, line: 5, column: NaN }] },
+		];
+	}
+	function assertPositions(uri: vscode.Uri) {
+		const positionOf = (code: string) => {
+			const diagnostic = cppcheckDiagnostics(uri).find(d => codeOf(d) === code);
+			assert.ok(diagnostic, `missing ${code}`);
+			return [diagnostic.range.start.line, diagnostic.range.start.character];
+		};
+		// Non critical warnings with an impossible line are dropped, critical ones are moved to the start of the file
+		assert.deepStrictEqual(cppcheckDiagnostics(uri).map(codeOf).sort(), ['nullPointer', 'syntaxError', 'uninitvar']);
+		assert.deepStrictEqual(positionOf('syntaxError'), [0, 0]);
+		// An impossible column is moved to the start of the line
+		assert.deepStrictEqual(positionOf('nullPointer'), [2, 0]);
+		assert.deepStrictEqual(positionOf('uninitvar'), [4, 0]);
+	}
+
 	suiteSetup(async function () {
 		if (process.platform === 'win32') {
 			// The fake executable is a shell script, which cannot be spawned directly on Windows
@@ -226,6 +321,17 @@ suite('Analysis', function () {
 	});
 
 	teardown(async () => {
+		restoreWindow();
+		delete process.env.FAKE_CPPCHECK_VERSION;
+		delete process.env.FAKE_CPPCHECK_EXIT;
+		delete process.env.FAKE_CPPCHECK_STDOUT;
+		await setSetting('path', fakeCppcheck);
+		await setSetting('enable', undefined);
+		if (hasWorkspace()) {
+			await cppcheckConfig().update('minSeverity', undefined, vscode.ConfigurationTarget.Workspace);
+			await cppcheckConfig().update('path', undefined, vscode.ConfigurationTarget.Workspace);
+		}
+
 		// Hidden warning types are remembered by the extension, make sure they do not leak into the next test
 		for (const type of hiddenTypes) {
 			stubQuickPick({ label: type, value: type });
@@ -372,6 +478,13 @@ suite('Analysis', function () {
 			await vscode.commands.executeCommand('cppcheck-official.runFullAnalysis');
 		}
 
+		async function useCompileCommands() {
+			const project = path.join(workDir, 'compile_commands.json');
+			fs.writeFileSync(project, '[]');
+			await setSetting('arguments', `--project=${project}`);
+			return project;
+		}
+
 		test('compile_commands.json: analyzes the whole project', async () => {
 			const first = writeWorkFile('first.cpp');
 			const second = writeWorkFile('second.cpp');
@@ -437,6 +550,71 @@ suite('Analysis', function () {
 			await setSetting('arguments', '');
 			stubQuickPick({ label: '-j1', value: '-j1' });
 			await assert.rejects(() => Promise.resolve(vscode.commands.executeCommand('cppcheck-official.runFullAnalysis')));
+		});
+
+		test('Cancelling the thread selection does not start cppcheck', async () => {
+			await useCompileCommands();
+			stubQuickPick(undefined);
+			await vscode.commands.executeCommand('cppcheck-official.runFullAnalysis');
+			assert.strictEqual(invocations().length, 0);
+		});
+
+		test('Fails with messages when cppcheck cannot be started', async () => {
+			await useCompileCommands();
+			const messages = captureMessages();
+			await setSetting('path', path.join(workDir, 'no-such-cppcheck'));
+			await assert.rejects(runFullAnalysis('-j1'));
+			await waitFor(() => messages.error.some(m => m.includes('Could not find or run')), 'the version check to fail');
+			assert.ok(messages.error.some(m => m.includes('failed to start')));
+		});
+
+		test('Failing cppcheck: the message from stdout is shown together with the command', async () => {
+			await useCompileCommands();
+			setReport([]);
+			process.env.FAKE_CPPCHECK_EXIT = '2';
+			process.env.FAKE_CPPCHECK_STDOUT = 'cppcheck: error: something went wrong\n';
+			const messages = captureMessages();
+			await runFullAnalysis('-j1');
+			assert.strictEqual(messages.error.length, 1);
+			assert.ok(messages.error[0].startsWith('cppcheck: error: something went wrong, Command: '));
+			assert.ok(messages.error[0].includes('-j1'));
+		});
+
+		test('Errors without a location are ignored and unreachable files are announced', async () => {
+			const file = writeWorkFile('first.cpp');
+			await useCompileCommands();
+			const messages = captureMessages();
+			setReport([
+				{ id: 'checkersReport', severity: 'information', msg: 'No location', locations: [] },
+				{ id: 'uninitvar', severity: 'error', msg: 'Uninitialized variable: x', locations: [{ file: path.join(workDir, 'missing.cpp'), line: 5 }] },
+				{ id: 'nullPointer', severity: 'error', msg: 'Null pointer dereference', locations: [{ file, line: 3 }] },
+			]);
+			await runFullAnalysis('-j1');
+
+			assert.deepStrictEqual(cppcheckDiagnostics(vscode.Uri.file(file)).map(codeOf), ['nullPointer']);
+			assert.strictEqual(messages.info.length, 1);
+			assert.ok(messages.info[0].includes('[uninitvar]'));
+			assert.ok(messages.info[0].includes('Uninitialized variable: x'));
+		});
+
+		test('Impossible lines and columns are skipped, moved or clamped', async () => {
+			const file = writeWorkFile('first.cpp');
+			await useCompileCommands();
+			setReport(positionReport(file));
+			await runFullAnalysis('-j1');
+			assertPositions(vscode.Uri.file(file));
+		});
+
+		test('Premium cppcheck gets --premium=safety-off', async () => {
+			await useCompileCommands();
+			setReport([]);
+			process.env.FAKE_CPPCHECK_VERSION = 'Cppcheck Premium 25.8.0';
+			try {
+				await runUntilPremiumFlag(() => runFullAnalysis('-j1'), true);
+			} finally {
+				delete process.env.FAKE_CPPCHECK_VERSION;
+				await runUntilPremiumFlag(() => runFullAnalysis('-j1'), false);
+			}
 		});
 	});
 
@@ -680,6 +858,393 @@ suite('Analysis', function () {
 
 			assert.strictEqual((await getCodeActions(document, diagnostic)).filter(a => a.title.includes('nullPointer')).length, 0);
 			await discardChanges(document);
+		});
+	});
+
+	suite('Commands', () => {
+	suite('browsePath', () => {
+		let dialogOptions: vscode.OpenDialogOptions | undefined;
+		function stubOpenDialog(result: vscode.Uri[] | undefined) {
+			dialogOptions = undefined;
+			stubWindow('showOpenDialog', (options: vscode.OpenDialogOptions) => {
+				dialogOptions = options;
+				return Promise.resolve(result);
+			});
+		}
+		const browse = () => vscode.commands.executeCommand('cppcheck-official.browsePath');
+
+		test('Cancelled dialog leaves the setting untouched', async () => {
+			stubOpenDialog(undefined);
+			await browse();
+			assert.strictEqual(cppcheckConfig().get('path'), fakeCppcheck);
+		});
+
+		test('Empty selection leaves the setting untouched', async () => {
+			stubOpenDialog([]);
+			await browse();
+			assert.strictEqual(cppcheckConfig().get('path'), fakeCppcheck);
+		});
+
+		test('Selected executable is saved and the dialog starts at the current path', async () => {
+			const chosen = path.join(toolDir, 'other-cppcheck');
+			stubOpenDialog([vscode.Uri.file(chosen)]);
+			await browse();
+			assert.strictEqual(dialogOptions?.defaultUri?.fsPath, fakeCppcheck);
+			assert.strictEqual(dialogOptions?.canSelectFolders, false);
+			assert.strictEqual(cppcheckConfig().inspect<string>('path')?.globalValue, chosen);
+		});
+
+		test('Dialog has no start location when no path is configured', async () => {
+			await setSetting('path', '');
+			stubOpenDialog(undefined);
+			await browse();
+			assert.strictEqual(dialogOptions?.defaultUri, undefined);
+		});
+
+		test('Warns when a workspace setting overrides the saved path', async function () {
+			if (!hasWorkspace()) {
+				this.skip();
+			}
+			await cppcheckConfig().update('path', fakeCppcheck, vscode.ConfigurationTarget.Workspace);
+			const messages = captureMessages();
+			stubOpenDialog([vscode.Uri.file(path.join(toolDir, 'other-cppcheck'))]);
+			await browse();
+			assert.strictEqual(messages.warning.length, 1);
+			assert.ok(messages.warning[0].includes('overridden by the workspace setting'));
+		});
+	});
+
+	suite('suppressWarningAll', () => {
+		test('Suppression for a file and symbol is written and the user is told to re-analyze', async () => {
+			const { project } = await analyzeWithProjectFile(emptyProject);
+			const messages = captureMessages();
+			await vscode.commands.executeCommand('cppcheck-official.suppressWarningAll', 'uninitvar', 'main.cpp', 'x');
+
+			assert.ok(fs.readFileSync(project, 'utf8').includes('<suppression file="main.cpp" symbolName="x">uninitvar</suppression>'));
+			assert.strictEqual(messages.info.length, 1);
+			assert.ok(messages.info[0].includes('Suppression of uninitvar added to project file'));
+			assert.ok(messages.info[0].includes(' for file main.cpp for symbol name x'));
+			assert.ok(messages.info[0].includes('you have to re-analyze'));
+		});
+
+		test('A universal suppression does not ask for a re-analysis', async () => {
+			await analyzeWithProjectFile(emptyProject);
+			const messages = captureMessages();
+			await vscode.commands.executeCommand('cppcheck-official.suppressWarningAll', 'nullPointer');
+			assert.strictEqual(messages.info.length, 1);
+			assert.ok(!messages.info[0].includes('re-analyze'));
+		});
+
+		test('Reports an error when the project file cannot be written', async () => {
+			await analyzeWithProjectFile('not a project file');
+			const messages = captureMessages();
+			await vscode.commands.executeCommand('cppcheck-official.suppressWarningAll', 'nullPointer');
+			assert.strictEqual(messages.error.length, 1);
+			assert.ok(messages.error[0].includes('Failed to add suppression of nullPointer'));
+		});
+	});
+
+	suite('suppressWarningAdvanced', () => {
+		let project: string;
+		let document: vscode.TextDocument;
+		let inputOptions: vscode.InputBoxOptions | undefined;
+		let quickPickItems: Array<{ label: string; value: string | null }> | undefined;
+
+		function answer(file: string | undefined, symbol?: { label: string; value: string | null }) {
+			inputOptions = undefined;
+			quickPickItems = undefined;
+			stubWindow('showInputBox', (options: vscode.InputBoxOptions) => { inputOptions = options; return Promise.resolve(file); });
+			stubWindow('showQuickPick', (items: typeof quickPickItems) => { quickPickItems = items; return Promise.resolve(symbol); });
+		}
+		function run(code: string) {
+			const diagnostic = cppcheckDiagnostics(document.uri).find(d => codeOf(d) === code);
+			assert.ok(diagnostic);
+			return vscode.commands.executeCommand('cppcheck-official.suppressWarningAdvanced', code, document, diagnostic);
+		}
+		const projectText = () => fs.readFileSync(project, 'utf8');
+
+		setup(async () => {
+			({ project, document } = await analyzeWithProjectFile(emptyProject));
+		});
+
+		test('Warning with a symbol asks for the file and the symbol', async () => {
+			answer('src/main.cpp', { label: 'Symbol: x', value: 'x' });
+			await run('uninitvar');
+			assert.strictEqual(inputOptions?.value, document.fileName);
+			assert.ok(inputOptions?.title?.includes('(1/2)'));
+			assert.deepStrictEqual(quickPickItems?.map(i => i.value), ['x', null]);
+			assert.ok(projectText().includes('<suppression file="src/main.cpp" symbolName="x">uninitvar</suppression>'));
+		});
+
+		test('"Not symbol specific" suppresses by file only', async () => {
+			answer('src/main.cpp', { label: 'Not symbol specific', value: null });
+			await run('uninitvar');
+			assert.ok(projectText().includes('<suppression file="src/main.cpp">uninitvar</suppression>'));
+		});
+
+		test('Warning without a symbol only asks for the file', async () => {
+			answer('src/main.cpp');
+			await run('nullPointer');
+			assert.ok(!inputOptions?.title?.includes('(1/2)'));
+			assert.strictEqual(quickPickItems, undefined);
+			assert.ok(projectText().includes('<suppression file="src/main.cpp">nullPointer</suppression>'));
+		});
+
+		test('Escape at the file prompt cancels', async () => {
+			answer(undefined);
+			await run('uninitvar');
+			assert.strictEqual(quickPickItems, undefined);
+			assert.ok(!projectText().includes('<suppressions>'));
+		});
+
+		test('Escape at the symbol prompt cancels', async () => {
+			answer('src/main.cpp', undefined);
+			await run('uninitvar');
+			assert.ok(quickPickItems);
+			assert.ok(!projectText().includes('<suppressions>'));
+		});
+	});
+
+	suite('selectMinSeverity', () => {
+		let offered: Array<{ description: string; value: string }> = [];
+		function stubSelection(selection: unknown) {
+			offered = [];
+			stubWindow('showQuickPick', (items: typeof offered) => { offered = items; return Promise.resolve(selection); });
+		}
+		const select = () => vscode.commands.executeCommand('cppcheck-official.selectMinSeverity');
+
+		test('Marks the current level in the list', async () => {
+			for (const level of ['info', 'warning', 'error']) {
+				await setSetting('minSeverity', level);
+				stubSelection(undefined);
+				await select();
+				assert.deepStrictEqual(offered.map(i => i.value), ['info', 'warning', 'error']);
+				assert.deepStrictEqual(offered.filter(i => i.description !== '').map(i => i.value), [level]);
+			}
+		});
+
+		test('Cancelling keeps the setting', async () => {
+			await setSetting('minSeverity', 'warning');
+			stubSelection(undefined);
+			await select();
+			assert.strictEqual(cppcheckConfig().get('minSeverity'), 'warning');
+		});
+
+		test('Selected level is saved for the workspace and applied to the warnings', async function () {
+			if (!hasWorkspace()) {
+				this.skip();
+			}
+			const file = writeWorkFile('main.cpp');
+			setReport([
+				{ id: 'nullPointer', severity: 'error', msg: 'An error', locations: [{ file, line: 3 }] },
+				{ id: 'unreadVariable', severity: 'style', msg: 'A style issue', locations: [{ file, line: 4 }] },
+			]);
+			const document = await openAndAnalyze(file);
+			await waitFor(() => cppcheckDiagnostics(document.uri).length === 2, 'two diagnostics');
+
+			stubSelection({ label: 'Error', value: 'error' });
+			await select();
+
+			assert.strictEqual(cppcheckConfig().inspect<string>('minSeverity')?.workspaceValue, 'error');
+			assert.deepStrictEqual(cppcheckDiagnostics(document.uri).map(codeOf), ['nullPointer']);
+		});
+	});
+});
+
+	suite('Reading the report', () => {
+		test('Errors without a location are ignored', async () => {
+			const file = writeWorkFile('main.cpp');
+			setReport([
+				{ id: 'checkersReport', severity: 'information', msg: 'No location', locations: [] },
+				{ id: 'nullPointer', severity: 'error', msg: 'Null pointer dereference', locations: [{ file, line: 3 }] },
+			]);
+			const document = await openAndAnalyze(file);
+			await waitFor(() => cppcheckDiagnostics(document.uri).length === 1, 'one diagnostic');
+			assert.deepStrictEqual(cppcheckDiagnostics(document.uri).map(codeOf), ['nullPointer']);
+		});
+
+		test('Impossible lines and columns are skipped, moved or clamped', async () => {
+			const file = writeWorkFile('main.cpp');
+			setReport(positionReport(file));
+			const document = await openAndAnalyze(file);
+			await waitFor(() => cppcheckDiagnostics(document.uri).length === 3, 'three diagnostics');
+			assertPositions(document.uri);
+		});
+
+		test('Warnings in other files are shown there and removed together with the analyzed file', async () => {
+			const file = writeWorkFile('main.cpp');
+			const other = writeWorkFile('other.cpp');
+			setReport([
+				{ id: 'nullPointer', severity: 'error', msg: 'Null pointer dereference', locations: [{ file, line: 3 }] },
+				{ id: 'uninitvar', severity: 'error', msg: 'Uninitialized variable: x', locations: [{ file: other, line: 5 }] },
+			]);
+			const document = await openAndAnalyze(file);
+			await waitFor(() => cppcheckDiagnostics(vscode.Uri.file(other)).length === 1, 'warning in the other file');
+			assert.strictEqual(cppcheckDiagnostics(document.uri).length, 1);
+
+			await vscode.commands.executeCommand('workbench.action.closeAllEditors');
+			await waitFor(
+				() => cppcheckDiagnostics(vscode.Uri.file(other)).length === 0 && cppcheckDiagnostics(document.uri).length === 0,
+				'warnings to be cleared'
+			);
+		});
+
+		test('A location with only a file name is matched against the analyzed file', async () => {
+			const file = writeWorkFile('main.cpp');
+			setReport([{ id: 'nullPointer', severity: 'error', msg: 'Null pointer dereference', locations: [{ file: 'main.cpp', line: 3 }] }]);
+			const document = await openAndAnalyze(file);
+			await waitFor(() => cppcheckDiagnostics(document.uri).length === 1, 'one diagnostic');
+			assert.strictEqual(cppcheckDiagnostics(document.uri)[0].range.start.line, 2);
+		});
+
+		test('A warning in a file that cannot be opened is dropped', async () => {
+			const file = writeWorkFile('main.cpp');
+			const missing = path.join(workDir, 'missing.cpp');
+			setReport([
+				{ id: 'uninitvar', severity: 'error', msg: 'Uninitialized variable: x', locations: [{ file: missing, line: 5 }] },
+				{ id: 'nullPointer', severity: 'error', msg: 'Null pointer dereference', locations: [{ file, line: 3 }] },
+			]);
+			const document = await openAndAnalyze(file);
+			await waitFor(() => cppcheckDiagnostics(document.uri).length === 1, 'one diagnostic');
+			assert.strictEqual(cppcheckDiagnostics(vscode.Uri.file(missing)).length, 0);
+		});
+
+		test('compile_commands.json: critical warnings in other files are still shown', async () => {
+			const file = writeWorkFile('main.cpp');
+			const other = writeWorkFile('other.cpp');
+			const project = path.join(workDir, 'compile_commands.json');
+			writeCompileCommands(project, [file]);
+			await setSetting('arguments', `--project=${project}`);
+			setReport([{ id: 'syntaxError', severity: 'error', msg: 'Syntax error', locations: [{ file: other, line: 3 }] }]);
+			await openAndAnalyze(file);
+			await waitFor(() => cppcheckDiagnostics(vscode.Uri.file(other)).length === 1, 'critical warning in the other file');
+		});
+	});
+
+	suite('Failures', () => {
+		test('Failing cppcheck: the message from stdout is shown together with the command', async () => {
+			const file = writeWorkFile('main.cpp');
+			setReport([]);
+			process.env.FAKE_CPPCHECK_EXIT = '2';
+			process.env.FAKE_CPPCHECK_STDOUT = 'cppcheck: error: something went wrong\n';
+			const messages = captureMessages();
+			await openAndAnalyze(file);
+			await waitFor(() => messages.error.length > 0, 'an error message');
+			assert.ok(messages.error[0].startsWith('cppcheck: error: something went wrong, Command: '));
+			assert.ok(messages.error[0].includes(toPosix(file)));
+		});
+
+		test('Failing cppcheck without output: generic message', async () => {
+			const file = writeWorkFile('main.cpp');
+			setReport([]);
+			process.env.FAKE_CPPCHECK_EXIT = '1';
+			const messages = captureMessages();
+			await openAndAnalyze(file);
+			await waitFor(() => messages.error.length > 0, 'an error message');
+			assert.ok(messages.error[0].startsWith('Cppcheck failed with code 1 (unknown error), Command: '));
+		});
+
+		test('Missing executable: both the version check and the start fail', async () => {
+			// handleDocument rejects here, which the extension does not catch. VS Code logs it as an unhandled rejection.
+			const file = writeWorkFile('main.cpp');
+			const messages = captureMessages();
+			await setSetting('path', path.join(workDir, 'no-such-cppcheck'));
+			await editAndSave(file);
+			await waitFor(
+				() => messages.error.some(m => m.includes('Could not find or run')) && messages.error.some(m => m.includes('failed to start')),
+				'both error messages'
+			);
+		});
+	});
+
+	suite('When files are analyzed', () => {
+		test('Files that are not C or C++ are ignored', async () => {
+			const file = writeWorkFile('notes.txt', 'just text\n');
+			setReport([]);
+			await editAndSave(file);
+			await quietPeriod();
+			assert.strictEqual(invocations().length, 0);
+		});
+
+		test('An unchanged file is not analyzed again when it is shown again', async () => {
+			const first = writeWorkFile('first.cpp');
+			const second = writeWorkFile('second.cpp');
+			setReport([]);
+			const document = await openAndAnalyze(first);
+			await openAndAnalyze(second);
+			const calls = invocations().length;
+
+			await vscode.window.showTextDocument(document);
+			await quietPeriod();
+			assert.strictEqual(invocations().length, calls);
+		});
+
+		test('Closing a file clears its warnings and it is analyzed again when reopened', async () => {
+			const file = writeWorkFile('main.cpp');
+			setReport([{ id: 'nullPointer', severity: 'error', msg: 'Null pointer dereference', locations: [{ file, line: 3 }] }]);
+			const document = await openAndAnalyze(file);
+			await waitFor(() => cppcheckDiagnostics(document.uri).length === 1, 'one diagnostic');
+
+			await vscode.commands.executeCommand('workbench.action.closeActiveEditor');
+			await waitFor(() => cppcheckDiagnostics(document.uri).length === 0, 'warnings to be cleared');
+
+			const calls = invocations().length;
+			await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(file));
+			await waitFor(() => invocations().length > calls, 'the reopened file to be analyzed');
+			await waitFor(() => cppcheckDiagnostics(document.uri).length === 1, 'warning to come back');
+		});
+
+		test('Disabling the extension clears the warnings of changed files and stops analyses', async () => {
+			const file = writeWorkFile('main.cpp');
+			setReport([{ id: 'nullPointer', severity: 'error', msg: 'Null pointer dereference', locations: [{ file, line: 3 }] }]);
+			const document = await openAndAnalyze(file);
+			await waitFor(() => cppcheckDiagnostics(document.uri).length === 1, 'one diagnostic');
+			const calls = invocations().length;
+
+			await setSetting('enable', false);
+			await editAndSave(file);
+
+			await waitFor(() => cppcheckDiagnostics(document.uri).length === 0, 'warnings to be cleared');
+			await quietPeriod();
+			assert.strictEqual(invocations().length, calls);
+		});
+
+		test('Files in a preview tab are analyzed after a delay and cleared when no longer viewed', async () => {
+			const first = writeWorkFile('first.cpp');
+			const second = writeWorkFile('second.cpp');
+			setReport([{ id: 'nullPointer', severity: 'error', msg: 'Null pointer dereference', locations: [{ file: first, line: 3 }] }]);
+
+			// The extension waits 10 seconds before analyzing a previewed file, shorten that for the test
+			const timers = globalThis as unknown as { setTimeout: typeof setTimeout };
+			const originalSetTimeout = timers.setTimeout;
+			const callSetTimeout = originalSetTimeout as unknown as (...args: unknown[]) => unknown;
+			timers.setTimeout = ((handler: unknown, ms?: number, ...args: unknown[]) =>
+				callSetTimeout(handler, ms === 10000 ? 20 : ms, ...args)) as unknown as typeof setTimeout;
+			try {
+				const document = await vscode.workspace.openTextDocument(first);
+				await vscode.window.showTextDocument(document, { preview: true });
+				assert.ok(vscode.window.tabGroups.activeTabGroup.activeTab?.isPreview, 'the file is expected to open in a preview tab');
+				await waitFor(() => cppcheckDiagnostics(document.uri).length === 1, 'warning in the previewed file');
+
+				setReport([]);
+				await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(second), { preview: false });
+				await waitFor(() => cppcheckDiagnostics(document.uri).length === 0, 'warnings of the previewed file to be cleared');
+			} finally {
+				timers.setTimeout = originalSetTimeout;
+			}
+		});
+
+		test('Premium cppcheck gets --premium=safety-off', async () => {
+			const file = writeWorkFile('main.cpp');
+			setReport([]);
+			process.env.FAKE_CPPCHECK_VERSION = 'Cppcheck Premium 25.8.0';
+			try {
+				await runUntilPremiumFlag(() => openAndAnalyze(file), true);
+			} finally {
+				delete process.env.FAKE_CPPCHECK_VERSION;
+				// The flag is module state in the extension, make sure it does not leak into other tests
+				await runUntilPremiumFlag(() => openAndAnalyze(file), false);
+			}
 		});
 	});
 });
