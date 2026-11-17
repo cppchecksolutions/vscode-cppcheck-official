@@ -56,10 +56,14 @@ export async function extractRelatedInformation(locations : Array<XmlAnalysisOut
         const loc = locations[locations.length - i].$;
         const msg = loc.info;
         const lLine = Number(loc.line) - 1;
-        const lCol = Number(loc.column) - 1;
+        let lCol = Number(loc.column) - 1;
 
         if (msg === null || msg === undefined || isNaN(lLine) || lLine < 0) {
             continue;
+        }
+
+        if (isNaN(lCol) || lCol < 0) {
+            lCol = 0;
         }
         
         var relatedDocument : vscode.TextDocument | undefined;
