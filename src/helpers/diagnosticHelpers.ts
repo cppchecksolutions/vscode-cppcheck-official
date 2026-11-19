@@ -73,11 +73,11 @@ export async function extractRelatedInformation(locations : Array<XmlAnalysisOut
             // Do nothing
         }
 
-        if (relatedDocument && lCol > relatedDocument.lineAt(lLine).text.length) {
+        if (isNaN(lLine) || lLine < 0 || (relatedDocument && lLine >= relatedDocument.lineCount)) {
             continue;
         }
 
-        if (isNaN(lLine) || lLine < 0 || (relatedDocument && lLine >= relatedDocument.lineCount)) {
+        if (relatedDocument && lCol > relatedDocument.lineAt(lLine).text.length) {
             continue;
         }
 
