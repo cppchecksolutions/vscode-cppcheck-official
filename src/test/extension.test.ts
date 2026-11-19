@@ -35,7 +35,44 @@ suite('Related information', () => {
 		// 0-indexing vs 1-indexing -> column: 5 becomes 4
 		assert.strictEqual(infos[0].location.range.start.character, 4);
 	});
-});
+
+	test('Location with column 0 is clamped to character 0', async () => {
+		const locations = [
+			{ $: { info: 'Primary', line: '1', column: '1', file: sourceFile } },
+			{ $: { info: 'Column zero', line: '3', column: '0', file: sourceFile } },
+		];
+		const infos = await extractRelatedInformation(locations as any);
+		assert.strictEqual(infos.length, 2);
+		assert.strictEqual(infos[0].message, 'Column zero');
+		assert.strictEqual(infos[0].location.range.start.line, 2);
+		assert.strictEqual(infos[0].location.range.start.character, 0);
+		// Range spans to end of line ' return x/0;'
+		assert.strictEqual(infos[0].location.range.end.character, 12);
+	});
+
+	test('Location with missing column is clamped to character 0', async () => {
+		const locations = [
+			{ $: { info: 'Primary', line: '1', column: '1', file: sourceFile } },
+			{ $: { info: 'No column', line: '2', file: sourceFile } },
+		];
+		const infos = await extractRelatedInformation(locations as any);
+		assert.strictEqual(infos.length, 2);
+		assert.strictEqual(infos[0].message, 'No column');
+		assert.strictEqual(infos[0].location.range.start.character, 0);
+	});
+
+	test('Location with column 0 in a file that cannot be opened', async () => {
+		const locations = [
+			{ $: { info: 'Primary', line: '1', column: '1', file: sourceFile } },
+			{ $: { info: 'Missing file', line: '1', column: '0', file: path.join(dir, 'does-not-exist.c') } },
+		];
+		const infos = await extractRelatedInformation(locations as any);
+		assert.strictEqual(infos.length, 2);
+		assert.strictEqual(infos[0].message, 'Missing file');
+		assert.strictEqual(infos[0].location.range.start.character, 0);
+		assert.strictEqual(infos[0].location.range.end.character, 0);
+	});
+ });
 
 suite('Argument parsing', () => {
 	test('Parsing paths with blank spaces correctly', () => {
