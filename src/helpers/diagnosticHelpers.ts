@@ -77,6 +77,10 @@ export async function extractRelatedInformation(locations : Array<XmlAnalysisOut
             continue;
         }
 
+        if (isNaN(lLine) || lLine < 0 || (relatedDocument && lLine >= relatedDocument.lineCount)) {
+            continue;
+        }
+
         const relatedRange = new vscode.Range(
             lLine, lCol,
             lLine, relatedDocument ? relatedDocument.lineAt(lLine).text.length : lCol
