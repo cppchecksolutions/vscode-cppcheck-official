@@ -7,7 +7,7 @@ import { DiagnosticStore } from './util/diagnosticStore';
 import { StatusBar } from './util/statusBar';
 import { CodeActionProvider } from './util/codeActions';
 import { ProjectFileStore, writeSuppressionToProjectFile, isFileInCompilationDatabase, getCompilationDatabasePath } from './util/files';
-import { extractRelatedInformation, setUpDiagnostic, isCriticalWarning } from './helpers/diagnosticHelpers';
+import { extractRelatedInformation, setUpDiagnostic, isCriticalWarning, decodeCppcheckEscapes } from './helpers/diagnosticHelpers';
 import { processArguments, SeverityNumber, parseSeverity, severityToNumber } from './helpers/settingsHelpers';
 import { getArguments } from './util/settingsFile';
 import { DocumentHashMemory } from './util/documentHash';
@@ -608,7 +608,7 @@ async function runCppcheckOnFileXML(
                     
                     // Set up a vscode.diagnostic object
                     const colEnd = mainLocDocument ? mainLocDocument.lineAt(line).text.length : col;
-                    const message = isCriticalWarning(e.$.id) && e.$.verbose ? e.$.verbose.replaceAll('\\012', '\n') : e.$.msg;
+                    const message = isCriticalWarning(e.$.id) && e.$.verbose ? decodeCppcheckEscapes(e.$.verbose) : e.$.msg;
                     const diagnostic = setUpDiagnostic(line, col, line, colEnd, e.$.id, message, severity);
 
                     diagnosticStore.track(diagnostic, { symbolName, mainLocLine });
@@ -778,7 +778,7 @@ async function runFullAnalysis(
 
                     // Set up a vscode.diagnostic object
                     const colEnd = mainLocDocument ? mainLocDocument.lineAt(line).text.length : col;
-                    const message = isCriticalWarning(e.$.id) && e.$.verbose ? e.$.verbose.replaceAll('\\012', '\n') : e.$.msg;
+                    const message = isCriticalWarning(e.$.id) && e.$.verbose ? decodeCppcheckEscapes(e.$.verbose) : e.$.msg;
                     const diagnostic = setUpDiagnostic(line, col, line, colEnd, e.$.id, message, severity);
                     
                     diagnosticStore.track(diagnostic, { symbolName, mainLocLine });
