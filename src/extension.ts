@@ -608,7 +608,8 @@ async function runCppcheckOnFileXML(
                     
                     // Set up a vscode.diagnostic object
                     const colEnd = mainLocDocument ? mainLocDocument.lineAt(line).text.length : col;
-                    const diagnostic = setUpDiagnostic(line, col, line, colEnd, e.$.id, e.$.msg, severity);
+                    const message = isCriticalWarning(e.$.id) && e.$.verbose ? e.$.verbose.replaceAll('\\012', '\n') : e.$.msg;
+                    const diagnostic = setUpDiagnostic(line, col, line, colEnd, e.$.id, message, severity);
 
                     diagnosticStore.track(diagnostic, { symbolName, mainLocLine });
 
@@ -777,7 +778,8 @@ async function runFullAnalysis(
 
                     // Set up a vscode.diagnostic object
                     const colEnd = mainLocDocument ? mainLocDocument.lineAt(line).text.length : col;
-                    const diagnostic = setUpDiagnostic(line, col, line, colEnd, e.$.id, e.$.msg, severity);
+                    const message = isCriticalWarning(e.$.id) && e.$.verbose ? e.$.verbose.replaceAll('\\012', '\n') : e.$.msg;
+                    const diagnostic = setUpDiagnostic(line, col, line, colEnd, e.$.id, message, severity);
                     
                     diagnosticStore.track(diagnostic, { symbolName, mainLocLine });
 
