@@ -30,6 +30,16 @@ const criticalWarningTypes = [
 
 export const isCriticalWarning = (id: string) => criticalWarningTypes.includes(id);
 
+export function decodeCppcheckEscapes(s: string): string {
+    const bytes: number[] = [];
+    for (let i = 0; i < s.length; i++) {
+        const m = /^\\([0-7]{3})/.exec(s.slice(i, i + 4));
+        if (m) { bytes.push(parseInt(m[1], 8)); i += 3; }
+        else { bytes.push(...Buffer.from(s[i])); }
+    }
+    return Buffer.from(bytes).toString('utf8');
+}
+
 export function setUpDiagnostic(lineStart : number, colStart : number, lineEnd : number, colEnd : number, warningId : string, warningMessage : string, severity : vscode.DiagnosticSeverity) {
     const range = new vscode.Range(lineStart, colStart, lineEnd, colEnd);
     const diagnostic = new vscode.Diagnostic(range, warningMessage, severity);
