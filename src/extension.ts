@@ -20,6 +20,7 @@ let statusBar: StatusBar;
 let previewAnalysisTimer: NodeJS.Timeout | undefined;
 let previewedDocument: vscode.TextDocument | undefined;
 let usesPremiumCppcheck = false;
+let analysisQueue: Promise<void> = Promise.resolve();
 
 // This method is called when your extension is activated.
 // Your extension is activated the very first time the command is executed.
@@ -37,7 +38,6 @@ export async function activate(context: vscode.ExtensionContext) {
     
     statusBar = new StatusBar(projectFileStore);
     context.subscriptions.push(statusBar);
-
 
     // Set up code actions provider
     context.subscriptions.push(
@@ -287,11 +287,7 @@ export async function activate(context: vscode.ExtensionContext) {
                 });
 
                 // Run
-                await runFullAnalysis(
-                    commandPath,
-                    processedArgs,
-                    selection.value,
-                );
+                await enqueueAnalysis(() => runFullAnalysis(commandPath, processedArgs, selection.value));
 
                 const minSevString = config.get<string>("cppcheck-official.minSeverity", "info");
                 diagnosticStore.applyMinSeverity(parseSeverity(minSevString));
@@ -336,15 +332,16 @@ export async function activate(context: vscode.ExtensionContext) {
     // Call update function once at setup to set the UI text to the settings current value
     statusBar.updateMinSeverity();
 
+    function enqueueAnalysis(job: () => Promise<void>): Promise<void> {
+        const run = analysisQueue.then(job, job);
+        analysisQueue = run.catch(() => {});
+        return run;
+    }
+
     async function handleDocument(document: vscode.TextDocument) {
         // Only process C/C++ files.
         if (!["c", "cpp"].includes(document.languageId)) {
             // Not a C/C++ file, skip
-            return;
-        }
-
-        // Check file content against memory, if it has not changed since last check do early return
-        if (documentHashMemory.isUnchanged(document)) {
             return;
         }
 
@@ -383,11 +380,12 @@ export async function activate(context: vscode.ExtensionContext) {
             usesPremiumCppcheck = stdout.toLowerCase().includes('premium'); 
         });
 
-        await runCppcheckOnFileXML(
-            document,
-            commandPath,
-            processedArgs,
-        );
+        await enqueueAnalysis(async () => {
+            if (documentHashMemory.isUnchanged(document)) {
+                return;
+            }
+            await runCppcheckOnFileXML(document, commandPath, processedArgs);
+        });
 
         const minSevString = config.get<string>("cppcheck-official.minSeverity", "info");
         diagnosticStore.applyMinSeverity(parseSeverity(minSevString));
@@ -555,6 +553,7 @@ async function runCppcheckOnFileXML(
             parser.parseString(xmlOutput, async (err, result) => {
                 if (err) {
                     console.error("XML parse error:", err);
+                    resolve();
                     return;
                 }
 
@@ -727,6 +726,7 @@ async function runFullAnalysis(
             parser.parseString(xmlOutput, async (err, result) => {
                 if (err) {
                     console.error("XML parse error:", err);
+                    resolve();
                     return;
                 }
 
