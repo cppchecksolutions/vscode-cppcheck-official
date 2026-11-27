@@ -553,7 +553,7 @@ async function runCppcheckOnFileXML(
             parser.parseString(xmlOutput, async (err, result) => {
                 if (err) {
                     console.error("XML parse error:", err);
-                    reject();
+                    resolve();
                     return;
                 }
 
@@ -726,7 +726,7 @@ async function runFullAnalysis(
             parser.parseString(xmlOutput, async (err, result) => {
                 if (err) {
                     console.error("XML parse error:", err);
-                    reject();
+                    resolve();
                     return;
                 }
 
